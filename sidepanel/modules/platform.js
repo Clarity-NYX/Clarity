@@ -272,11 +272,17 @@ export const updatePlatformUI = (platform) => {
     usageCounter.classList.add('hidden');
   }
   
-  // Notification Bell - hide for Telegram
+  // Notification Bell - hide for Telegram, show for OnlyFans
   const notificationBell = document.getElementById('notificationBellBtn');
-  if (notificationBell && isTelegram) {
-    notificationBell.classList.add('hidden');
-    notificationBell.style.display = 'none';
+  if (notificationBell) {
+    if (isTelegram) {
+      notificationBell.classList.add('hidden');
+      notificationBell.style.display = 'none';
+    } else {
+      // Ensure bell is visible for OnlyFans
+      notificationBell.classList.remove('hidden');
+      notificationBell.style.display = '';
+    }
   }
   
   

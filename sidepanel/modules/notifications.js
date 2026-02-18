@@ -209,18 +209,27 @@ export function setupMessageListeners() {
 // Add notification bell to header
 export function addNotificationBell() {
   const headerActions = document.querySelector('.header-actions');
-  if (!headerActions) return;
+  if (!headerActions) {
+    console.log('[Notifications] Header actions not found, retrying in 100ms...');
+    setTimeout(addNotificationBell, 100);
+    return;
+  }
   
   // Check if already added
-  if ($('notificationBellBtn')) return;
+  if ($('notificationBellBtn')) {
+    console.log('[Notifications] Bell already exists');
+    return;
+  }
   
-  // Check current platform - hide bell for Telegram
-  const currentPlatform = Store.get('platform') || Store.get('selectedPlatform');
+  // Check current platform - hide bell for Telegram only
+  const currentPlatform = Store.get('selectedPlatform') || Store.get('platform');
   const isTelegram = currentPlatform === 'telegram';
   
-  // Create bell button with badge
+  console.log('[Notifications] Adding bell, platform:', currentPlatform, 'isTelegram:', isTelegram);
+  
+  // Create bell button with badge - ALWAYS create visible, hide after if needed
   const bellHTML = `
-    <button id="notificationBellBtn" class="notification-bell" title="Mute notifications" style="${isTelegram ? 'display: none;' : ''}">
+    <button id="notificationBellBtn" class="notification-bell" title="Mute notifications">
       <span class="bell-icon">🔔</span>
       <span id="notificationBadge" class="notification-badge hidden">0</span>
     </button>
@@ -236,7 +245,12 @@ export function addNotificationBell() {
   
   // Add click handler
   const bellBtn = $('notificationBellBtn');
-  bellBtn?.addEventListener('click', async () => {
+  if (!bellBtn) {
+    console.error('[Notifications] Failed to create bell button');
+    return;
+  }
+  
+  bellBtn.addEventListener('click', async () => {
     const muted = await toggleMute();
     const icon = bellBtn.querySelector('.bell-icon');
     if (icon) {
@@ -244,10 +258,16 @@ export function addNotificationBell() {
     }
   });
   
-  // Hide immediately if Telegram
-  if (isTelegram && bellBtn) {
+  // Hide ONLY if Telegram platform
+  if (isTelegram) {
     bellBtn.classList.add('hidden');
     bellBtn.style.display = 'none';
+    console.log('[Notifications] Bell hidden for Telegram');
+  } else {
+    // Ensure visible for non-Telegram platforms (OnlyFans)
+    bellBtn.classList.remove('hidden');
+    bellBtn.style.display = '';
+    console.log('[Notifications] Bell shown for', currentPlatform || 'OnlyFans');
   }
   
   // Initial update
