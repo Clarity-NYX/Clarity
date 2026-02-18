@@ -1,0 +1,133 @@
+/* ===========================================
+   Main Content Layout
+   =========================================== */
+
+.main-content {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--spacing-md);
+  padding-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Section Base */
+.chat-section,
+.notes-section,
+.response-section,
+.quick-actions {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* Scripts section needs visible overflow for editor */
+.scripts-section {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: var(--spacing-lg);
+  opacity: 0.5;
+}
+
+.empty-state p {
+  font-size: var(--font-size-md);
+  margin-bottom: 4px;
+}
+
+.empty-state small {
+  font-size: var(--font-size-sm);
+  opacity: 0.7;
+}
+
+/* Loading State */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: 20px;
+  color: var(--text-secondary);
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(255, 107, 157, 0.2);
+  border-top-color: var(--primary);
+  border-radius: var(--radius-round);
+  animation: spin 0.8s linear infinite;
+}
+
+/* Error State */
+.error-state {
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid var(--error);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  color: var(--error);
+  font-size: var(--font-size-base);
+}
+
+/* Quick Actions */
+.quick-actions {
+  padding: var(--spacing-md);
+}
+
+.quick-actions h3 {
+  font-size: var(--font-size-base);
+  margin-bottom: 10px;
+}
+
+.quick-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+/* Response Section */
+.response-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: transparent;
+}
+
+.generated-response {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.response-content {
+  padding: var(--spacing-md);
+  background: linear-gradient(135deg, rgba(255, 107, 157, 0.1), rgba(156, 39, 176, 0.1));
+  border-left: 3px solid var(--primary);
+}
+
+.response-content p {
+  font-size: var(--font-size-md);
+  line-height: 1.5;
+}
+
+.response-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  padding: 8px 12px;
+}

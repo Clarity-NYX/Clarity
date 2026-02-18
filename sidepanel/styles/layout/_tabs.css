@@ -1,0 +1,66 @@
+/* ===========================================
+   Tab Navigation Layout
+   =========================================== */
+
+.tab-nav {
+  display: flex;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab-btn {
+  flex: 1;
+  padding: var(--spacing-md);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  border-bottom: 2px solid transparent;
+}
+
+.tab-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.tab-btn.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  background: rgba(255, 107, 157, 0.1);
+}
+
+/* Tab Content */
+.tab-content {
+  display: none;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tab-content.active {
+  display: flex;
+}
+
+/* Chat tab specific - needs scrollable areas within */
+#chatTab.tab-content.active {
+  overflow: hidden;
+}
+
+/* Scripts tab - flows naturally, parent scrolls */
+#scriptsTab.tab-content.active {
+  flex: 1 1 auto !important;
+  overflow-y: scroll !important;
+  padding-bottom: 20px;
+}
+
+/* Notes tab - flows naturally, parent scrolls */
+#notesTab.tab-content.active {
+  flex: 1 1 auto !important;
+  overflow-y: scroll !important;
+  padding-bottom: 20px;
+}

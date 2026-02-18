@@ -1,0 +1,184 @@
+/* Platform Selector Styles */
+
+.platform-selector {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-primary);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.platform-selector-content {
+  text-align: center;
+  max-width: 400px;
+  width: 100%;
+}
+
+.platform-selector-content h2 {
+  font-size: 24px;
+  margin-bottom: 8px;
+  color: #fff;
+}
+
+.platform-selector-content > p {
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 24px;
+}
+
+.platform-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.platform-card {
+  background: var(--bg-secondary);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  padding: 20px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.platform-card:hover:not(.disabled) {
+  border-color: var(--accent-color);
+  background: var(--bg-hover);
+  transform: translateY(-2px);
+}
+
+.platform-card:active:not(.disabled) {
+  transform: translateY(0);
+}
+
+.platform-card.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.platform-card.selected {
+  border-color: var(--accent-color);
+  background: rgba(0, 149, 246, 0.1);
+}
+
+.platform-icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-color);
+}
+
+/* OnlyFans blue */
+.platform-card[data-platform="onlyfans"] .platform-icon {
+  color: #00AFF0;
+}
+
+/* Telegram blue */
+.platform-card[data-platform="telegram"] .platform-icon,
+.telegram-icon {
+  color: #0088cc;
+}
+
+/* Snapchat yellow */
+.platform-card[data-platform="snapchat"] .platform-icon,
+.snapchat-icon {
+  color: #FFFC00;
+}
+
+/* Instagram gradient (simplified to pink) */
+.platform-card[data-platform="instagram"] .platform-icon,
+.instagram-icon {
+  color: #E1306C;
+}
+
+.platform-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.platform-desc {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.platform-footer {
+  margin-top: 16px;
+}
+
+.platform-footer small {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+}
+
+/* Current platform indicator in header */
+.current-platform-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 8px;
+}
+
+.current-platform-badge svg {
+  width: 14px;
+  height: 14px;
+}
+
+.current-platform-badge.onlyfans {
+  color: #00AFF0;
+}
+
+.current-platform-badge.telegram {
+  color: #0088cc;
+}
+
+/* Platform switch button in settings */
+.platform-switch-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.platform-switch-btn:hover {
+  border-color: var(--accent-color);
+  background: var(--bg-hover);
+}
+
+.platform-switch-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.platform-switch-btn span {
+  flex: 1;
+  text-align: left;
+}
+
+.platform-switch-btn .switch-arrow {
+  color: var(--text-secondary);
+}

@@ -1,0 +1,229 @@
+/* ===========================================
+   Notes Feature Styles
+   =========================================== */
+
+.notes-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding-right: 4px;
+}
+
+.notes-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+}
+
+.notes-header h3 {
+  font-size: var(--font-size-md);
+}
+
+/* Info Cards */
+.info-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-sm);
+}
+
+.info-card {
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  padding: 10px;
+}
+
+.info-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.info-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-light);
+  color: var(--text);
+  font-size: var(--font-size-base);
+}
+
+.info-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+/* Notes Groups */
+.notes-group {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+}
+
+.notes-group label {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  margin-bottom: var(--spacing-sm);
+  color: var(--text);
+}
+
+.notes-textarea {
+  width: 100%;
+  min-height: 60px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-light);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  resize: vertical;
+  font-family: inherit;
+}
+
+.notes-textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.notes-textarea::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+/* Notes Actions */
+.notes-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.notes-actions .btn {
+  flex: 1;
+}
+
+/* Notes Header Actions */
+.notes-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+/* Auto-scan Status */
+.auto-scan-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--primary-light);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  color: var(--primary);
+  animation: pulse 2s infinite;
+}
+
+.scan-indicator {
+  animation: rotate 1s linear infinite;
+}
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Chat History Section */
+.chat-history-section {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md);
+  border: 1px solid var(--border);
+}
+
+.chat-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-md);
+}
+
+.chat-history-header h4 {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  margin: 0;
+}
+
+.summary-status {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+/* Summary Stats */
+.summary-stats {
+  display: flex;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--spacing-md);
+}
+
+.summary-stats .stat-item {
+  flex: 1;
+  text-align: center;
+}
+
+.summary-stats .stat-label {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.summary-stats .stat-value {
+  display: block;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Conversation Highlights */
+.conversation-highlights {
+  background: var(--surface-light);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-sm);
+}
+
+.conversation-highlights h5 {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  margin: 0 0 var(--spacing-sm) 0;
+  color: var(--text-secondary);
+}
+
+.highlights-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.highlights-list li {
+  font-size: var(--font-size-xs);
+  color: var(--text);
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.highlights-list li:last-child {
+  border-bottom: none;
+}
+
+.highlights-list li::before {
+  content: '• ';
+  color: var(--primary);
+  font-weight: bold;
+  margin-right: 6px;
+}

@@ -1,0 +1,42 @@
+/* ===========================================
+   Clarity Notes - Main CSS Entry Point
+   Modular CSS Architecture
+   =========================================== */
+
+/* Base */
+@import url('./base/_variables.css');
+@import url('./base/_reset.css');
+
+/* Components */
+@import url('./components/_buttons.css');
+@import url('./components/_forms.css');
+@import url('./components/_modals.css');
+
+/* Layout */
+@import url('./layout/_header.css');
+@import url('./layout/_tabs.css');
+@import url('./layout/_main.css');
+
+/* Features */
+@import url('./features/_chat.css');
+@import url('./features/_scripts.css');
+@import url('./features/_notes.css');
+@import url('./features/_auth.css');
+@import url('./features/_settings.css');
+@import url('./features/_profiles.css');
+@import url('./features/_credits.css');
+@import url('./features/_calendar.css');
+@import url('./features/_platform.css');
+@import url('./features/_autochat.css');
+@import url('./features/_voice.css');
+
+/* ===========================================
+   IMAGE-RELATED UI ELEMENTS
+   (Re-enabled for Telegram)
+   =========================================== */
+
+/* Image Pool Section visibility is controlled by JS (platform.js) */
+/* Image Pool Select Group in Action Modal - visibility controlled by JS (actionModal.js) */
+
+/* Image Send Test section visibility is controlled by JS (platform.js) */
+/* It shows for Telegram, hides for OnlyFans */

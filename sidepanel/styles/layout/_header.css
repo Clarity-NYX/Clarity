@@ -1,0 +1,412 @@
+/* ===========================================
+   Header Layout
+   =========================================== */
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, var(--primary-dark), var(--secondary));
+  border-bottom: 1px solid var(--border);
+}
+
+.header-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.header h1 {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.header-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Profile Dropdown */
+.profile-selector {
+  position: relative;
+}
+
+.profile-dropdown-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-md);
+  color: white;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  transition: all var(--transition-base);
+  max-width: 180px;
+}
+
+.profile-dropdown-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.profile-avatar {
+  font-size: var(--font-size-lg);
+  flex-shrink: 0;
+}
+
+.profile-name {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.dropdown-arrow {
+  font-size: var(--font-size-xs);
+  opacity: 0.7;
+  flex-shrink: 0;
+  transition: transform var(--transition-base);
+}
+
+.profile-dropdown-btn.open .dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+.profile-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 200px;
+  background: var(--background);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  overflow: hidden;
+}
+
+.profile-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.profile-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background var(--transition-base);
+}
+
+.profile-list-item:hover {
+  background: var(--surface-light);
+}
+
+.profile-list-item.active {
+  background: rgba(255, 107, 157, 0.15);
+}
+
+.profile-list-item .profile-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-list-item .profile-item-name {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-list-item .profile-item-meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.profile-list-item .profile-check {
+  color: var(--primary);
+  font-size: var(--font-size-md);
+}
+
+.profile-list-item .edit-profile-btn {
+  padding: 4px 6px;
+  background: transparent;
+  border: none;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity var(--transition-base);
+}
+
+.profile-list-item:hover .edit-profile-btn {
+  opacity: 1;
+}
+
+.profile-dropdown-footer {
+  padding: var(--spacing-sm);
+  border-top: 1px solid var(--border);
+}
+
+.add-profile-btn {
+  width: 100%;
+  padding: var(--spacing-sm);
+  background: var(--surface);
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  transition: all var(--transition-base);
+}
+
+.add-profile-btn:hover {
+  background: var(--surface-light);
+  color: var(--text);
+  border-color: var(--primary);
+}
+
+/* Subscriber Info Bar */
+.subscriber-info-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.sub-info-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.sub-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sub-value {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sub-info-divider {
+  width: 1px;
+  height: 30px;
+  background: var(--border);
+}
+
+/* Footer */
+.footer {
+  padding: var(--spacing-sm);
+  text-align: center;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border-light);
+  font-size: var(--font-size-xs);
+  flex-shrink: 0;
+  background: var(--background);
+}
+
+/* Credits Badge - Visible to show user balance */
+.credits-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: rgba(255, 193, 7, 0.15);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 20px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.credits-badge:hover {
+  background: rgba(255, 193, 7, 0.25);
+}
+
+.credits-icon {
+  font-size: 14px;
+}
+
+.credits-amount {
+  color: #ffc107;
+  font-weight: 600;
+}
+
+/* Usage Counter (API Cost) - HIDDEN by default (internal tracking) */
+.usage-counter {
+  display: none !important;
+}
+
+/* For debugging/admin - add .show-usage class to body to reveal usage counter */
+body.show-usage .usage-counter {
+  display: flex !important;
+}
+
+/* Original Usage Counter Styles (when visible) */
+.usage-counter.visible {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: rgba(76, 175, 80, 0.15);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  border-radius: 20px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.usage-icon {
+  font-size: 14px;
+}
+
+.usage-amount {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+/* Profile Menu (dropdown in header) */
+.profile-menu-container {
+  position: relative;
+}
+
+.profile-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 220px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.profile-menu-item {
+  width: 100%;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.2s;
+  text-align: left;
+  font-size: var(--font-size-base);
+}
+
+.profile-menu-item:hover {
+  background: var(--surface-light);
+}
+
+.profile-menu-item .menu-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.profile-menu-item .menu-text {
+  flex: 1;
+  font-weight: 500;
+}
+
+.profile-menu-item-danger {
+  color: #e74c3c;
+}
+
+.profile-menu-item-danger:hover {
+  background: rgba(231, 76, 60, 0.1);
+}
+
+.profile-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* Notification Bell */
+.notification-bell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  color: white;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.notification-bell:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.05);
+}
+
+.notification-bell.muted {
+  opacity: 0.6;
+}
+
+.notification-bell.has-unread {
+  animation: bell-shake 0.5s ease-out;
+}
+
+.bell-icon {
+  font-size: 18px;
+  transition: transform var(--transition-base);
+}
+
+.notification-bell:hover .bell-icon {
+  transform: rotate(-15deg);
+}
+
+.notification-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background: #ff4458;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.notification-bell.notification-flash {
+  animation: notification-pulse 2s ease-out;
+}
+
+@keyframes bell-shake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-10deg); }
+  75% { transform: rotate(10deg); }
+}
+
+@keyframes notification-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 68, 88, 0.7); }
+  70% { box-shadow: 0 0 0 10px rgba(255, 68, 88, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 68, 88, 0); }
+}

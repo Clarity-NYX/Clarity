@@ -1,0 +1,18 @@
+/* OF Chat Assistant - Injected Styles */
+/* These styles are injected into OnlyFans pages */
+
+/* Minimal styles to avoid detection - we don't modify OF's UI */
+/* This file is kept minimal on purpose */
+
+/* If we need to highlight elements in the future */
+.of-assistant-highlight {
+  outline: 2px solid rgba(255, 107, 157, 0.5) !important;
+  outline-offset: 2px;
+}
+
+/* Debug mode - show message boundaries */
+.of-assistant-debug .b-chat__message,
+.of-assistant-debug .m-chat-message,
+.of-assistant-debug [class*="chat-message"] {
+  outline: 1px dashed rgba(255, 107, 157, 0.3);
+}

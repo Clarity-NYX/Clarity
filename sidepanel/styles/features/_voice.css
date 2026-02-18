@@ -1,0 +1,529 @@
+/* ===========================================
+   Voice Feature Styles (ElevenLabs Integration)
+   =========================================== */
+
+/* ===========================================
+   Voice Settings Section (in Settings Panel)
+   =========================================== */
+
+.voice-settings {
+  padding: var(--spacing-md);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(236, 72, 153, 0.1));
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: var(--radius-md);
+  margin-top: var(--spacing-md);
+}
+
+.voice-settings h4 {
+  margin: 0 0 var(--spacing-md) 0;
+  font-size: var(--font-size-md);
+  color: #a855f7;
+}
+
+.input-with-btn {
+  display: flex;
+  gap: var(--spacing-sm);
+}
+
+.input-with-btn input,
+.input-with-btn select {
+  flex: 1;
+  min-width: 0;
+}
+
+.voice-sliders {
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+}
+
+.voice-sliders .form-group {
+  margin-bottom: var(--spacing-md);
+}
+
+.voice-sliders .form-group:last-child {
+  margin-bottom: 0;
+}
+
+.voice-sliders label {
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  margin-bottom: 4px;
+  display: block;
+}
+
+.voice-sliders input[type="range"] {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-light);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.voice-sliders input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #8b5cf6, #ec4899);
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.voice-sliders input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.voice-sliders #stabilityValue,
+.voice-sliders #similarityValue,
+.voice-sliders #styleValue {
+  color: #a855f7;
+  font-weight: 600;
+}
+
+/* ===========================================
+   Voice Changer Settings
+   =========================================== */
+
+.voice-changer-settings {
+  padding: var(--spacing-md);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(59, 130, 246, 0.1));
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: var(--radius-md);
+  margin-top: var(--spacing-md);
+}
+
+.voice-changer-settings h4 {
+  margin: 0 0 var(--spacing-sm) 0;
+  font-size: var(--font-size-md);
+  color: #22c55e;
+}
+
+.voice-changer-sliders {
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+  transition: opacity 0.3s;
+}
+
+.voice-changer-sliders.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.voice-changer-sliders .form-group {
+  margin-bottom: var(--spacing-md);
+}
+
+.voice-changer-sliders .form-group:last-child {
+  margin-bottom: 0;
+}
+
+.voice-changer-sliders input[type="range"] {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-light);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.voice-changer-sliders input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #22c55e, #3b82f6);
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.voice-changer-sliders input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.voice-changer-sliders input[type="range"]:disabled::-webkit-slider-thumb {
+  background: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.voice-changer-sliders label {
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  margin-bottom: 4px;
+  display: block;
+}
+
+.voice-changer-sliders #pitchValue,
+.voice-changer-sliders #speedValue,
+.voice-changer-sliders #bassValue,
+.voice-changer-sliders #trebleValue,
+.voice-changer-sliders #reverbValue {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.slider-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+#playWithEffectsBtn {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(59, 130, 246, 0.2)) !important;
+  border-color: rgba(34, 197, 94, 0.5) !important;
+  color: #22c55e !important;
+}
+
+#playWithEffectsBtn:hover {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.3), rgba(59, 130, 246, 0.3)) !important;
+}
+
+/* ===========================================
+   Voice Generator Section (in Chat)
+   =========================================== */
+
+.voice-generator-section {
+  margin-top: var(--spacing-md);
+}
+
+.voice-generator {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(236, 72, 153, 0.1));
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.voice-generator.not-configured {
+  opacity: 0.8;
+}
+
+.voice-generator-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: rgba(139, 92, 246, 0.2);
+  border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+  font-weight: 600;
+  color: #c084fc;
+}
+
+.voice-generator-body {
+  padding: var(--spacing-md);
+}
+
+.voice-setup-hint {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-sm);
+}
+
+/* Voice Template Input */
+#voiceTemplateInput {
+  width: 100%;
+  min-height: 60px;
+  resize: vertical;
+}
+
+.voice-placeholders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.placeholder-hint {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.placeholder-btn {
+  font-size: var(--font-size-xs);
+  padding: 3px 8px;
+  background: rgba(139, 92, 246, 0.2);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: var(--radius-sm);
+  color: #c084fc;
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.placeholder-btn:hover {
+  background: rgba(139, 92, 246, 0.4);
+  transform: translateY(-1px);
+}
+
+/* Voice Preview */
+.voice-preview {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  font-style: italic;
+  border-left: 3px solid #a855f7;
+}
+
+.voice-preview.hidden {
+  display: none;
+}
+
+/* Voice Audio Player */
+.voice-audio-player {
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: var(--radius-sm);
+}
+
+.voice-audio-player.hidden {
+  display: none;
+}
+
+.voice-player {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.voice-player-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.voice-player-voice {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: #a855f7;
+}
+
+.voice-player-text {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.voice-player audio {
+  width: 100%;
+  height: 36px;
+  border-radius: var(--radius-sm);
+}
+
+.voice-player-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-sm);
+}
+
+#generateVoiceBtn {
+  background: linear-gradient(135deg, #8b5cf6, #ec4899) !important;
+  border: none !important;
+  color: white !important;
+  margin-top: var(--spacing-md);
+}
+
+#generateVoiceBtn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #7c3aed, #db2777) !important;
+}
+
+#generateVoiceBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Spinner for generating state */
+.spinner-sm {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 6px;
+}
+
+/* ===========================================
+   Voice Library Section
+   =========================================== */
+
+.voice-library-section {
+  margin-top: var(--spacing-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.voice-library-section.collapsed .voice-library-list {
+  display: none;
+}
+
+.voice-library-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 10px 14px;
+  cursor: pointer;
+  background: var(--surface-light);
+  transition: background var(--transition-base);
+}
+
+.voice-library-header:hover {
+  background: var(--border);
+}
+
+.voice-library-header .collapse-arrow {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  transition: transform var(--transition-base);
+}
+
+.voice-library-section:not(.collapsed) .collapse-arrow {
+  transform: rotate(90deg);
+}
+
+.voice-library-header h4 {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.voice-library-list {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: var(--spacing-sm);
+}
+
+.voice-library-list .empty-state {
+  padding: 20px;
+}
+
+.voice-library-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--background);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+}
+
+.voice-library-item:last-child {
+  margin-bottom: 0;
+}
+
+.voice-library-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.voice-library-text {
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voice-library-meta {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+.voice-library-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.btn-xs {
+  padding: 4px 8px;
+  font-size: var(--font-size-xs);
+}
+
+/* ===========================================
+   Badge Styles
+   =========================================== */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.badge-warning {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+
+.badge-success {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.badge-error {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+/* ===========================================
+   Action Type Voice Button
+   =========================================== */
+
+.action-type-btn[data-type="voice"] {
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+.action-type-btn[data-type="voice"].selected {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: #8b5cf6;
+  color: #c084fc;
+}
+
+.action-type-btn[data-type="voice"]:hover {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: #8b5cf6;
+}
+
+/* ===========================================
+   Voice Action in Script Stages
+   =========================================== */
+
+.stage-message[data-type="voice"]::before {
+  content: "🎤";
+  margin-right: 6px;
+}
+
+.stage-message[data-type="voice"] {
+  border-left: 2px solid #8b5cf6;
+  padding-left: 10px;
+}
+
+/* ===========================================
+   Platform-Specific Visibility
+   =========================================== */
+
+/* Hide voice features for Telegram (voice messages not supported) */
+body.telegram-platform #voiceGeneratorPanel,
+body.telegram-platform .voice-library-section {
+  display: none !important;
+}

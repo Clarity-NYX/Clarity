@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Clarity",
+  "version": "1.0.0",
+  "description": "Smart productivity assistant for content management",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://clarity-notes-api-0a5da158d2ca.herokuapp.com https://*.firebaseio.com https://*.googleapis.com https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com wss://*.firebaseio.com https://firebasestorage.googleapis.com;"
+  },
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://onlyfans.com/*",
+    "https://web.telegram.org/*",
+    "http://localhost:3001/*",
+    "http://127.0.0.1:3001/*",
+    "https://firebasestorage.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://onlyfans.com/*"],
+      "js": ["dist/content.bundle.js"],
+      "css": ["styles/inject.css"]
+    },
+    {
+      "matches": ["https://web.telegram.org/*"],
+      "js": ["content/telegram/index.js", "content/telegram/monitor.js"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Open Clarity"
+  }
+}

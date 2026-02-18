@@ -1,0 +1,172 @@
+/* ===========================================
+   Buttons Component
+   =========================================== */
+
+.btn {
+  padding: 10px 16px;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  transition: all var(--transition-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--primary-dark);
+}
+
+.btn-secondary {
+  background: var(--surface-light);
+  color: var(--text);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-hover);
+}
+
+.btn-small,
+.btn-sm {
+  padding: 6px 12px;
+  font-size: var(--font-size-sm);
+  background: var(--surface-light);
+  color: var(--text);
+}
+
+.btn-tiny {
+  padding: 4px 8px;
+  font-size: var(--font-size-xs);
+  background: var(--surface-light);
+  color: var(--text);
+}
+
+.btn-full {
+  width: 100%;
+  padding: 14px;
+  font-size: 15px;
+}
+
+/* Generate Button */
+.btn-generate {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: white;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.btn-generate:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(255, 107, 157, 0.4);
+}
+
+.btn-generate.btn-timeout {
+  background: #555;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-generate.btn-timeout:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-generate.btn-timeout #timeoutCounter {
+  font-weight: 700;
+  color: var(--warning);
+  margin-left: var(--spacing-sm);
+}
+
+/* Action Buttons */
+.btn-action {
+  flex: 1;
+  padding: 10px;
+  background: var(--surface-light);
+  color: var(--text);
+  font-size: var(--font-size-base);
+}
+
+.btn-action:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.btn-danger {
+  color: var(--error);
+}
+
+.btn-danger:hover {
+  background: rgba(244, 67, 54, 0.2);
+}
+
+/* Icon Button */
+.icon-btn {
+  background: var(--border);
+  border: none;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  transition: background var(--transition-base);
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.icon-btn-small {
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  transition: all var(--transition-base);
+  color: var(--text-secondary);
+}
+
+.icon-btn-small:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.btn-icon {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  font-size: var(--font-size-md);
+  opacity: 0.7;
+  transition: opacity var(--transition-base);
+}
+
+.btn-icon:hover {
+  opacity: 1;
+}
+
+/* Quick Action Buttons */
+.quick-btn {
+  padding: 8px 10px;
+  background: var(--surface-light);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.quick-btn:hover {
+  background: rgba(255, 107, 157, 0.15);
+  border-color: var(--primary);
+}

@@ -1,0 +1,1406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clarity</title>
+  <link rel="stylesheet" href="styles/main.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="profile-selector">
+          <button id="profileDropdownBtn" class="profile-dropdown-btn">
+            <span id="currentProfileAvatar" class="profile-avatar">👤</span>
+            <span id="currentProfileName" class="profile-name">Select Profile</span>
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <div id="profileDropdown" class="profile-dropdown hidden">
+            <div id="profileList" class="profile-list">
+              <!-- Profiles populated dynamically -->
+            </div>
+            <div class="profile-dropdown-footer">
+              <button id="addProfileBtn" class="add-profile-btn">+ New Profile</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="creditsBtn" class="credits-badge" title="Buy Credits">
+          <span class="credits-icon">🪙</span>
+          <span id="creditsDisplay" class="credits-amount">0</span>
+        </button>
+        <div id="usageCounter" class="usage-counter" title="Total API cost">
+          <span class="usage-icon">💰</span>
+          <span id="usageDisplay" class="usage-amount">$0.00</span>
+        </div>
+        <div class="profile-menu-container">
+          <button id="profileMenuBtn" class="icon-btn" title="Settings Menu">⚙️</button>
+          <div id="profileMenu" class="profile-menu hidden">
+            <button id="settingsMenuBtn" class="profile-menu-item">
+              <span class="menu-icon">⚙️</span>
+              <span class="menu-text">Settings</span>
+            </button>
+            <button id="apiKeysMenuBtn" class="profile-menu-item">
+              <span class="menu-icon">🔑</span>
+              <span class="menu-text">API Keys</span>
+            </button>
+            <button id="billingMenuBtn" class="profile-menu-item">
+              <span class="menu-icon">💳</span>
+              <span class="menu-text">Billing</span>
+            </button>
+            <div class="profile-menu-divider"></div>
+            <button id="logoutMenuBtn" class="profile-menu-item profile-menu-item-danger">
+              <span class="menu-icon">🚪</span>
+              <span class="menu-text">Log Out</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Profile Modal -->
+    <div id="profileModal" class="modal hidden">
+      <div class="modal-content modal-content-large">
+        <div class="modal-header">
+          <h3 id="profileModalTitle">New Profile</h3>
+          <button id="closeProfileModalBtn" class="icon-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- Basic Info -->
+          <div class="form-section">
+            <div class="form-section-title">👤 Basic Info</div>
+            <div class="form-group">
+              <label>Profile Name:</label>
+              <input type="text" id="profileNameInput" placeholder="e.g., Telegram Emma">
+              <small class="form-hint">Used for organizing profiles (e.g., "Telegram Emma", "OF Emma")</small>
+            </div>
+            <div class="form-group">
+              <label>Model Name:</label>
+              <input type="text" id="profileModelNameInput" placeholder="e.g., Emma">
+              <small class="form-hint">The name the AI uses when introducing itself</small>
+            </div>
+            <div class="form-group">
+              <label>🌐 Language:</label>
+              <select id="profileLanguageSelect">
+                <option value="">Any (auto-detect)</option>
+                <option value="english">English</option>
+                <option value="polish">Polish (Polski)</option>
+                <option value="spanish">Spanish (Español)</option>
+                <option value="german">German (Deutsch)</option>
+                <option value="french">French (Français)</option>
+                <option value="italian">Italian (Italiano)</option>
+                <option value="portuguese">Portuguese (Português)</option>
+                <option value="dutch">Dutch (Nederlands)</option>
+                <option value="russian">Russian (Русский)</option>
+                <option value="japanese">Japanese (日本語)</option>
+                <option value="korean">Korean (한국어)</option>
+                <option value="chinese">Chinese (中文)</option>
+                <option value="arabic">Arabic (العربية)</option>
+              </select>
+              <small class="form-hint">Force AI to always respond in this language</small>
+            </div>
+            <div class="form-group">
+              <label>Avatar:</label>
+              <div class="avatar-picker" id="avatarPicker">
+                <button class="avatar-option selected" data-avatar="👤">👤</button>
+                <button class="avatar-option" data-avatar="🌹">🌹</button>
+                <button class="avatar-option" data-avatar="💋">💋</button>
+                <button class="avatar-option" data-avatar="💕">💕</button>
+                <button class="avatar-option" data-avatar="🔥">🔥</button>
+                <button class="avatar-option" data-avatar="✨">✨</button>
+                <button class="avatar-option" data-avatar="🌙">🌙</button>
+                <button class="avatar-option" data-avatar="🦋">🦋</button>
+                <button class="avatar-option" data-avatar="🎀">🎀</button>
+                <button class="avatar-option" data-avatar="💎">💎</button>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group half">
+                <label>Age:</label>
+                <input type="number" id="profileAgeInput" placeholder="e.g., 22" min="18" max="99">
+              </div>
+              <div class="form-group half">
+                <label>Country:</label>
+                <input type="text" id="profileCountryInput" placeholder="e.g., USA">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>City:</label>
+              <input type="text" id="profileCityInput" placeholder="e.g., New York">
+              <div class="checkbox-option" style="margin-top: 6px;">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="profileMatchLocationCheckbox">
+                  <span>Match subscriber's location (use their city if available)</span>
+                </label>
+              </div>
+              <small class="form-hint">Leave empty and check the box to dynamically use the subscriber's location</small>
+            </div>
+            <div class="form-group">
+              <label>🌍 Timezone:</label>
+              <select id="profileTimezoneSelect">
+                <option value="">Auto (use browser)</option>
+                <option value="America/New_York">🇺🇸 Eastern (New York)</option>
+                <option value="America/Chicago">🇺🇸 Central (Chicago)</option>
+                <option value="America/Denver">🇺🇸 Mountain (Denver)</option>
+                <option value="America/Los_Angeles">🇺🇸 Pacific (LA)</option>
+                <option value="America/Anchorage">🇺🇸 Alaska</option>
+                <option value="Pacific/Honolulu">🇺🇸 Hawaii</option>
+                <option value="Europe/London">🇬🇧 London (GMT)</option>
+                <option value="Europe/Paris">🇪🇺 Paris (CET)</option>
+                <option value="Europe/Berlin">🇩🇪 Berlin (CET)</option>
+                <option value="Europe/Warsaw">🇵🇱 Warsaw (CET)</option>
+                <option value="Europe/Moscow">🇷🇺 Moscow</option>
+                <option value="Asia/Dubai">🇦🇪 Dubai</option>
+                <option value="Asia/Singapore">🇸🇬 Singapore</option>
+                <option value="Asia/Tokyo">🇯🇵 Tokyo</option>
+                <option value="Australia/Sydney">🇦🇺 Sydney</option>
+              </select>
+              <small class="form-hint">Used for script active hours timing</small>
+            </div>
+            <div class="form-row">
+              <div class="form-group half">
+                <label>🌅 Wake Up Time:</label>
+                <input type="time" id="profileWakeUpTime" value="08:00">
+              </div>
+              <div class="form-group half">
+                <label>🌙 Sleep Time:</label>
+                <input type="time" id="profileSleepTime" value="23:00">
+              </div>
+            </div>
+            <small class="form-hint" style="margin-top: -8px;">Schedule times (±15min randomization applied)</small>
+          </div>
+
+          <!-- Appearance -->
+          <div class="form-section">
+            <div class="form-section-title">✨ Appearance</div>
+            <div class="form-group">
+              <label>Body Type:</label>
+              <select id="profileBodyTypeSelect">
+                <option value="">Not specified</option>
+                <option value="petite">Petite</option>
+                <option value="slim">Slim</option>
+                <option value="athletic">Athletic</option>
+                <option value="average">Average</option>
+                <option value="curvy">Curvy</option>
+                <option value="thick">Thick</option>
+                <option value="plus-size">Plus Size</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <div class="form-group half">
+                <label>Hair Color:</label>
+                <select id="profileHairSelect">
+                  <option value="">Not specified</option>
+                  <option value="blonde">Blonde</option>
+                  <option value="brunette">Brunette</option>
+                  <option value="black">Black</option>
+                  <option value="red">Red</option>
+                  <option value="auburn">Auburn</option>
+                  <option value="pink">Pink</option>
+                  <option value="blue">Blue</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div class="form-group half">
+                <label>Eye Color:</label>
+                <select id="profileEyesSelect">
+                  <option value="">Not specified</option>
+                  <option value="brown">Brown</option>
+                  <option value="blue">Blue</option>
+                  <option value="green">Green</option>
+                  <option value="hazel">Hazel</option>
+                  <option value="gray">Gray</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Personality -->
+          <div class="form-section">
+            <div class="form-section-title">💬 Personality</div>
+            <div class="form-group">
+              <label>Default Tone:</label>
+              <select id="profileToneSelect">
+                <option value="sweet">💕 Sweet</option>
+                <option value="flirty">😏 Flirty</option>
+                <option value="spicy">🔥 Spicy</option>
+                <option value="dominant">😈 Dominant</option>
+                <option value="submissive">🥺 Submissive</option>
+                <option value="casual">💬 Casual</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Personality Traits:</label>
+              <input type="text" id="profilePersonalityInput" placeholder="e.g., bubbly, playful, caring">
+            </div>
+            <div class="form-group">
+              <label>Style Rules:</label>
+              <textarea id="profileStyleRulesInput" placeholder="e.g., Uses 'baby' and 'sweetie' often, types with lots of emojis, short flirty messages"></textarea>
+            </div>
+          </div>
+
+          <!-- Kinks & Boundaries -->
+          <div class="form-section">
+            <div class="form-section-title">🔥 Kinks & Boundaries</div>
+            <div class="form-group">
+              <label>Kinks / Specialties:</label>
+              <div class="tag-input-container" id="kinksTagContainer">
+                <div class="tags-list" id="kinksTags"></div>
+                <input type="text" class="tag-input" id="kinksInput" placeholder="Type and press Enter...">
+              </div>
+              <small class="form-hint">Press Enter to add, click tag to remove</small>
+            </div>
+            <div class="form-group">
+              <label>Boundaries / Limits:</label>
+              <div class="tag-input-container" id="boundariesTagContainer">
+                <div class="tags-list" id="boundariesTags"></div>
+                <input type="text" class="tag-input" id="boundariesInput" placeholder="Type and press Enter...">
+              </div>
+              <small class="form-hint">Things this persona won't do</small>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="saveProfileBtn" class="btn btn-primary">Save Profile</button>
+          <button id="deleteProfileBtn" class="btn btn-secondary btn-danger hidden">Delete</button>
+          <button id="cancelProfileBtn" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Panel (hidden by default) -->
+    <div id="settingsPanel" class="settings-panel hidden">
+      <h3>⚙️ Settings</h3>
+      
+      <!-- Automation Toggles -->
+      <div class="settings-toggles">
+        <div class="setting-toggle-row">
+          <div class="toggle-info">
+            <span class="toggle-title">🤖 Auto-Generate Response</span>
+            <span class="toggle-desc">Generate reply when chat loads</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="autoGenerateToggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="setting-toggle-row">
+          <div class="toggle-info">
+            <span class="toggle-title">📝 Auto-Scan Notes</span>
+            <span class="toggle-desc">Extract subscriber info automatically</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="autoNotesToggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Typing Speed Setting -->
+      <div class="settings-section">
+        <h4 class="settings-section-title">⌨️ Typing Speed</h4>
+        <small class="settings-section-desc">Adjust how fast messages are typed in auto-chat</small>
+        <div class="typing-speed-control">
+          <div class="slider-with-value">
+            <span class="slider-label">🐢 Slow</span>
+            <input type="range" id="typingSpeedSlider" class="typing-speed-slider" min="25" max="200" value="100">
+            <span class="slider-label">🐇 Fast</span>
+          </div>
+          <div class="typing-speed-value">
+            <span id="typingSpeedValue">100</span>%
+          </div>
+        </div>
+        <small class="form-hint">100% = normal speed, 200% = 2x faster, 50% = half speed</small>
+      </div>
+
+      <!-- Situational Reactions -->
+      <div class="settings-section">
+        <h4 class="settings-section-title">🎭 Situational Reactions</h4>
+        <small class="settings-section-desc">Auto-respond with preset messages when triggered</small>
+        
+        <div id="situationalList" class="situational-list">
+          <!-- Populated dynamically by settings.js -->
+        </div>
+      </div>
+      
+      <!-- Voice Settings (ElevenLabs) -->
+      <div id="voiceSettingsSection" class="settings-section">
+        <!-- Populated dynamically by voice.js -->
+      </div>
+      
+      <!-- Hidden fallback selects -->
+      <select id="toneSelect" style="display: none;">
+        <option value="sweet">💕 Sweet</option>
+        <option value="flirty">😏 Flirty</option>
+        <option value="spicy">🔥 Spicy</option>
+        <option value="dominant">😈 Dom</option>
+        <option value="submissive">🥺 Sub</option>
+        <option value="casual">💬 Casual</option>
+      </select>
+      <select id="scriptSelect" style="display: none;">
+        <!-- Populated dynamically -->
+      </select>
+      
+      <div class="setting-actions">
+        <button id="saveSettingsBtn" class="btn btn-primary">Save</button>
+        <button id="closeSettingsBtn" class="btn btn-secondary">Close</button>
+        <button id="logoutBtn" class="btn btn-secondary btn-danger">🚪 Logout</button>
+      </div>
+      <!-- Hidden input for backwards compatibility -->
+      <input type="hidden" id="apiKeyInput">
+    </div>
+
+    <!-- Platform Selector (shown after auth, before main content) -->
+    <div id="platformSelector" class="platform-selector hidden">
+      <div class="platform-selector-content">
+        <h2>Choose Platform</h2>
+        <p>Select the platform you want to work with</p>
+        
+        <div class="platform-grid">
+          <button class="platform-card" data-platform="onlyfans">
+            <div class="platform-icon onlyfans-icon">
+              <svg viewBox="0 0 256 256" width="48" height="48" fill="currentColor">
+                <circle cx="128" cy="128" r="120" fill="#00AFF0"/>
+                <text x="128" y="175" font-family="Arial, sans-serif" font-size="140" font-weight="bold" fill="white" text-anchor="middle">OF</text>
+              </svg>
+            </div>
+            <div class="platform-name">OnlyFans</div>
+          </button>
+          
+          <button class="platform-card" data-platform="telegram">
+            <div class="platform-icon telegram-icon">
+              <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/>
+              </svg>
+            </div>
+            <div class="platform-name">Telegram</div>
+          </button>
+          
+          <button class="platform-card disabled" data-platform="snapchat" disabled>
+            <div class="platform-icon snapchat-icon">
+              <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor">
+                <path d="M12.2 2c-.6 0-1.3.1-1.9.2-2.1.4-3.7 1.5-4.7 3.2-.5.9-.8 1.9-.9 3v.7c0 .3 0 .6-.1.8 0 .1-.1.2-.3.3-.3.1-.6.1-.9.2-.2 0-.5.1-.7.2-.5.2-.8.5-.8.9 0 .3.2.6.5.8.2.1.4.2.7.3.2.1.4.1.6.2l.3.1c-.1.3-.2.5-.3.8-.3.6-.6 1.2-1.1 1.7-.3.3-.6.5-.9.7-.3.2-.6.4-.9.7-.2.2-.3.5-.3.8 0 .5.4.9.8 1.1.5.2 1 .3 1.5.4.1 0 .3 0 .4.1.1.1.2.2.3.3.1.2.3.5.4.7.2.3.4.5.7.7.3.2.7.3 1 .3.3 0 .6-.1.9-.2.5-.2 1-.4 1.5-.5.3-.1.7-.1 1-.1.4 0 .7 0 1.1.1.5.1 1 .3 1.5.5.3.1.6.2.9.2.4 0 .8-.1 1.1-.4.3-.2.5-.5.7-.7.1-.2.3-.5.4-.7.1-.1.2-.2.3-.3.1 0 .3-.1.4-.1.5-.1 1-.2 1.5-.4.4-.2.8-.6.8-1.1 0-.3-.1-.6-.3-.8-.2-.2-.5-.5-.9-.7-.3-.2-.6-.4-.9-.7-.5-.5-.8-1.1-1.1-1.7-.1-.3-.2-.5-.3-.8l.3-.1c.2-.1.4-.1.6-.2.3-.1.5-.2.7-.3.3-.2.5-.5.5-.8 0-.4-.3-.7-.8-.9-.2-.1-.5-.2-.7-.2-.3-.1-.6-.1-.9-.2-.1-.1-.2-.2-.3-.3 0-.2-.1-.5-.1-.8v-.7c-.1-1.1-.4-2.1-.9-3-1-1.7-2.6-2.8-4.7-3.2-.6-.1-1.2-.2-1.9-.2z"/>
+              </svg>
+            </div>
+            <div class="platform-name">Snapchat</div>
+            <div class="platform-desc">Coming Soon</div>
+          </button>
+          
+          <button class="platform-card disabled" data-platform="instagram" disabled>
+            <div class="platform-icon instagram-icon">
+              <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor">
+                <path d="M12 2c2.717 0 3.056.01 4.122.06 1.065.05 1.79.217 2.428.465.66.254 1.216.598 1.772 1.153a4.908 4.908 0 0 1 1.153 1.772c.247.637.415 1.363.465 2.428.047 1.066.06 1.405.06 4.122 0 2.717-.01 3.056-.06 4.122-.05 1.065-.218 1.79-.465 2.428a4.883 4.883 0 0 1-1.153 1.772 4.915 4.915 0 0 1-1.772 1.153c-.637.247-1.363.415-2.428.465-1.066.047-1.405.06-4.122.06-2.717 0-3.056-.01-4.122-.06-1.065-.05-1.79-.218-2.428-.465a4.89 4.89 0 0 1-1.772-1.153 4.904 4.904 0 0 1-1.153-1.772c-.248-.637-.415-1.363-.465-2.428C2.013 15.056 2 14.717 2 12c0-2.717.01-3.056.06-4.122.05-1.066.217-1.79.465-2.428a4.88 4.88 0 0 1 1.153-1.772A4.897 4.897 0 0 1 5.45 2.525c.638-.248 1.362-.415 2.428-.465C8.944 2.013 9.283 2 12 2zm0 5a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm6.5-.25a1.25 1.25 0 0 0-2.5 0 1.25 1.25 0 0 0 2.5 0zM12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/>
+              </svg>
+            </div>
+            <div class="platform-name">Instagram</div>
+            <div class="platform-desc">Coming Soon</div>
+          </button>
+        </div>
+        
+        <div class="platform-footer">
+          <small>You can switch platforms anytime from settings</small>
+        </div>
+      </div>
+    </div>
+
+    <!-- Auth Panel (shown when not logged in) -->
+    <div id="authPanel" class="auth-panel hidden">
+      <div class="auth-content">
+        <div class="auth-header">
+          <h2>✨ Clarity</h2>
+          <p>Sign in to continue</p>
+        </div>
+        
+        <div id="loginForm" class="auth-form">
+          <div class="form-group">
+            <label>Email:</label>
+            <input type="email" id="loginEmail" placeholder="your@email.com">
+          </div>
+          <div class="form-group">
+            <label>Password:</label>
+            <input type="password" id="loginPassword" placeholder="••••••••">
+          </div>
+          <button id="loginBtn" class="btn btn-primary btn-full">Sign In</button>
+          <p class="auth-switch">Don't have an account? <a href="#" id="showRegister">Sign Up</a></p>
+        </div>
+        
+        <div id="registerForm" class="auth-form hidden">
+          <div class="form-group">
+            <label>Email:</label>
+            <input type="email" id="registerEmail" placeholder="your@email.com">
+          </div>
+          <div class="form-group">
+            <label>Password:</label>
+            <input type="password" id="registerPassword" placeholder="••••••••">
+          </div>
+          <div class="form-group">
+            <label>Confirm Password:</label>
+            <input type="password" id="registerPasswordConfirm" placeholder="••••••••">
+          </div>
+          <button id="registerBtn" class="btn btn-primary btn-full">Create Account</button>
+          <p class="auth-switch">Already have an account? <a href="#" id="showLogin">Sign In</a></p>
+        </div>
+        
+        <div id="authError" class="auth-error hidden"></div>
+      </div>
+    </div>
+
+    <!-- Tab Navigation -->
+    <div class="tab-nav">
+      <button class="tab-btn active" data-tab="chat">💬 Chat</button>
+      <button class="tab-btn" data-tab="notes">📝 Notes</button>
+      <button class="tab-btn" data-tab="scripts">📋 Scripts</button>
+    </div>
+
+    <!-- Subscriber Info Bar (hidden by default, shown when chat is loaded) -->
+    <div id="subscriberInfoBar" class="subscriber-info-bar hidden">
+      <div class="sub-info-item">
+        <span class="sub-label">📅 Subscribed</span>
+        <span id="subscribedFor" class="sub-value">--</span>
+      </div>
+      <div class="sub-info-divider"></div>
+      <div class="sub-info-item">
+        <span class="sub-label">💰 Spent</span>
+        <span id="totalSpent" class="sub-value">$0</span>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- CHAT TAB -->
+      <div id="chatTab" class="tab-content active">
+        
+        <!-- Auto-Chat Status Bar (above panel) -->
+        <div id="autoChatStatusBar" class="autochat-status-bar hidden">
+          <!-- Populated dynamically by autochat.js -->
+        </div>
+        
+        <!-- Auto-Chat Panel -->
+        <div id="autoChatPanel" class="autochat-panel collapsed">
+          <!-- Populated dynamically by autochat.js -->
+        </div>
+        
+        <!-- Block List Panel -->
+        <div id="blockListPanel" class="blocklist-panel collapsed">
+          <div class="blocklist-header" id="blockListHeaderToggle">
+            <div class="blocklist-header-left">
+              <span class="collapse-arrow" id="blockListArrow">▶</span>
+              <h3>🚫 Block List</h3>
+              <span id="blockListCount" class="header-quick-stats">0 blocked</span>
+            </div>
+            <button id="blockListSettingsBtn" class="icon-btn-small" title="Block List Settings">⚙️</button>
+          </div>
+          
+          <div class="blocklist-body hidden" id="blockListBody">
+            <!-- Quick Block Input -->
+            <div class="blocklist-add-section">
+              <h4>➕ Block User</h4>
+              <div class="blocklist-add-form">
+                <input type="text" id="blockUserInput" class="blocklist-input" placeholder="Enter username or ID...">
+                <button id="blockUserBtn" class="btn btn-small btn-danger">Block</button>
+              </div>
+              <div class="blocklist-add-actions">
+                <button id="blockCurrentChatBtn" class="btn btn-small btn-secondary" title="Block current chat">
+                  🚫 Block Current Chat
+                </button>
+              </div>
+            </div>
+            
+            <!-- Blocked Users List -->
+            <div class="blocklist-list-section">
+              <div class="blocklist-list-header">
+                <h4>📋 Blocked Users</h4>
+                <button id="refreshBlockListBtn" class="btn btn-tiny" title="Refresh list">🔄</button>
+              </div>
+              <div id="blockedUsersList" class="blocked-users-list">
+                <!-- Populated dynamically -->
+                <div class="blocklist-empty">
+                  <span class="blocklist-empty-icon">✅</span>
+                  <p>No blocked users</p>
+                  <small>Users you block will appear here</small>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Block List Info -->
+            <div class="blocklist-info">
+              <small>💡 Blocked users are automatically skipped by AutoChat</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- ONLYFANS AUTO-CHAT PANEL (separate from Telegram) -->
+        <!-- HIDDEN by default. Only shown on OnlyFans platform via JS. -->
+        <!-- ============================================================ -->
+        <div id="autoChatPanelOF" class="autochat-panel-of collapsed hidden" style="display: none;">
+          <!-- Populated dynamically by autochat-onlyfans.js -->
+        </div>
+
+        <!-- Settings Panel (Chat Tab) -->
+        <div id="settingsPanelChat" class="settings-panel-chat collapsed">
+          <div class="settings-panel-header" id="settingsPanelHeaderToggle">
+            <div class="settings-panel-header-left">
+              <span class="collapse-arrow" id="settingsPanelArrow">▶</span>
+              <h3>⚙️ Settings</h3>
+            </div>
+          </div>
+          
+          <div class="settings-panel-body hidden" id="settingsPanelBody">
+            <!-- Automation Toggles -->
+            <div class="settings-toggles">
+              <div class="setting-toggle-row">
+                <div class="toggle-info">
+                  <span class="toggle-title">🤖 Auto-Generate Response</span>
+                  <span class="toggle-desc">Generate reply when chat loads</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="autoGenerateToggleChat">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="setting-toggle-row">
+                <div class="toggle-info">
+                  <span class="toggle-title">📝 Auto-Scan Notes</span>
+                  <span class="toggle-desc">Extract subscriber info automatically</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="autoNotesToggleChat">
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Typing Speed Setting -->
+            <div class="settings-section">
+              <h4 class="settings-section-title">⌨️ Typing Speed</h4>
+              <small class="settings-section-desc">Adjust how fast messages are typed in auto-chat</small>
+              <div class="typing-speed-control">
+                <div class="slider-with-value">
+                  <span class="slider-label">🐢 Slow</span>
+                  <input type="range" id="typingSpeedSliderChat" class="typing-speed-slider" min="25" max="200" value="100">
+                  <span class="slider-label">🐇 Fast</span>
+                </div>
+                <div class="typing-speed-value">
+                  <span id="typingSpeedValueChat">100</span>%
+                </div>
+              </div>
+              <small class="form-hint">100% = normal speed, 200% = 2x faster, 50% = half speed</small>
+            </div>
+
+            <!-- Situational Reactions -->
+            <div class="settings-section">
+              <h4 class="settings-section-title">🎭 Situational Reactions</h4>
+              <small class="settings-section-desc">Auto-respond with preset messages when triggered</small>
+              
+              <div id="situationalListChat" class="situational-list">
+                <!-- Populated dynamically by settings.js -->
+              </div>
+            </div>
+            
+            <!-- Voice Settings (ElevenLabs) -->
+            <div id="voiceSettingsSectionChat" class="settings-section">
+              <!-- Populated dynamically by voice.js -->
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- CHAT LIST VIEW (shown when no chat is open) -->
+        <!-- ============================================================ -->
+        <div id="chatListView" class="chat-list-view hidden">
+          <div class="chat-list-header">
+            <h3>📬 Recent Chats</h3>
+            <div class="chat-list-actions">
+              <span id="chatListCount" class="chat-count">0 chats</span>
+              <button id="refreshChatsBtn" class="btn btn-tiny" title="Refresh">🔄</button>
+            </div>
+          </div>
+          <div id="chatListContainer" class="chat-list-container">
+            <!-- Loading state -->
+            <div id="chatListLoading" class="chat-list-loading hidden">
+              <div class="spinner"></div>
+              <p>Loading chats...</p>
+            </div>
+            <!-- Empty state -->
+            <div id="chatListEmpty" class="chat-list-empty hidden">
+              <div class="empty-icon">💬</div>
+              <p>No chats yet</p>
+              <small>Open a chat on OnlyFans to get started</small>
+            </div>
+            <!-- Chat items populated dynamically -->
+            <div id="chatListItems" class="chat-list-items">
+            </div>
+          </div>
+          <div class="chat-list-hint">
+            <small>💡 Open a chat on OnlyFans to see the conversation</small>
+          </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- CHAT CONVERSATION VIEW (shown when a chat is open) -->
+        <!-- ============================================================ -->
+        <div id="chatConversationView" class="chat-conversation-view">
+        
+        <!-- Script Selection Panel (separate box) -->
+        <div id="scriptSelectionPanel" class="script-selection-panel">
+          <div class="script-selection-header">
+            <h3>Active Script</h3>
+            <div id="scriptModeIndicator" class="script-mode-indicator hidden">
+              <span class="mode-badge">Manual</span>
+            </div>
+          </div>
+          <div class="script-selection-body">
+            <div class="script-selector-row">
+              <select id="scriptSelectChat" class="script-select-chat">
+                <option value="">Loading scripts...</option>
+              </select>
+              <button id="scriptManualModeBtn" class="script-manual-btn" title="Enable manual mode">🎯</button>
+              <button id="scriptAutoModeBtn" class="script-auto-btn hidden" title="Reset to automatic">🔄</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Chat Display Section with integrated progress -->
+        <div class="chat-section">
+          <div class="chat-header">
+            <div class="chat-header-left">
+              <h3>💬 Conversation</h3>
+              <span id="messageCount" class="message-count">0</span>
+            </div>
+            <div class="chat-header-right">
+              <button id="calendarBtn" title="Script Timeline">📅</button>
+              <span id="progressCounter" class="progress-counter">0/0</span>
+            </div>
+          </div>
+          
+          <div class="progress-bar-inline">
+            <div id="progressBar" class="progress-bar"></div>
+          </div>
+          <div id="scriptStages" class="script-stages">
+            <!-- Populated dynamically with collapsible stages -->
+          </div>
+          <!-- Hidden input for backwards compatibility -->
+          <input type="hidden" id="subscriberName">
+          <div id="chatMessages" class="chat-messages">
+            <div class="empty-state">
+              <div class="empty-icon">💬</div>
+              <p>No conversation loaded</p>
+              <small>Open a chat to see messages</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- Test Media Panel REMOVED for OnlyFans - saves space -->
+
+        <!-- Response Generation Section -->
+        <div class="response-section">
+          <button id="generateBtn" class="btn btn-generate">
+            <span class="btn-icon">🤖</span>
+            <span class="btn-text">Generate Response</span>
+          </button>
+          
+          <div id="generatedResponse" class="generated-response hidden">
+            <!-- Media Preview (shown when current action is PPV/media) -->
+            <div id="mediaPreview" class="media-preview hidden">
+              <div class="media-preview-badge">
+                <span id="mediaPreviewIcon">📸</span>
+                <span id="mediaPreviewLabel">PPV Attached</span>
+              </div>
+              <div class="media-preview-content">
+                <img id="mediaPreviewThumb" class="media-preview-thumb" src="" alt="Media preview">
+                <div class="media-preview-info">
+                  <span id="mediaPreviewType" class="media-type-badge">Photo</span>
+                  <span id="mediaPreviewPrice" class="media-price-badge hidden">$0</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="response-content">
+              <p id="responseText"></p>
+            </div>
+            <div class="response-actions">
+              <button id="copyBtn" class="btn btn-action" title="Copy to clipboard">
+                📋 Copy
+              </button>
+              <button id="regenerateBtn" class="btn btn-action" title="Generate another">
+                🔄 Regenerate
+              </button>
+              <button id="sendBtn" class="btn btn-action btn-send" title="Send to chat">
+                📤 Send
+              </button>
+            </div>
+          </div>
+          
+          <div id="loadingState" class="loading-state hidden">
+            <div class="spinner"></div>
+            <p>Generating response...</p>
+          </div>
+          
+          <div id="errorState" class="error-state hidden">
+            <p id="errorMessage"></p>
+          </div>
+          
+        </div>
+
+        </div><!-- END chatConversationView -->
+
+      </div><!-- END chatTab -->
+
+      <!-- NOTES TAB -->
+      <div id="notesTab" class="tab-content">
+        <div class="notes-section">
+          <div class="notes-header">
+            <h3>📝 Subscriber Notes</h3>
+            <div class="notes-header-actions">
+              <div id="autoScanStatus" class="auto-scan-status hidden">
+                <span class="scan-indicator">🔄</span>
+                <span class="scan-text">Auto-scanning...</span>
+              </div>
+              <button id="extractInfoBtn" class="btn btn-small">🤖 Scan</button>
+            </div>
+          </div>
+          
+          <div id="extractingState" class="loading-state hidden">
+            <div class="spinner"></div>
+            <p>Analyzing conversation...</p>
+          </div>
+
+          <!-- Chat History Summary Section -->
+          <div class="chat-history-section">
+            <div class="chat-history-header">
+              <h4>💬 Chat Summary</h4>
+              <span id="chatSummaryStatus" class="summary-status"></span>
+            </div>
+            <div id="chatSummaryContent" class="chat-summary-content">
+              <div class="summary-stats">
+                <div class="stat-item">
+                  <span class="stat-label">Messages</span>
+                  <span id="totalMessagesCount" class="stat-value">0</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">Last Scan</span>
+                  <span id="lastScanTime" class="stat-value">Never</span>
+                </div>
+                <div class="stat-item">
+                  <span class="stat-label">Auto-scan</span>
+                  <span id="autoScanEnabled" class="stat-value">Off</span>
+                </div>
+              </div>
+              <div id="conversationHighlights" class="conversation-highlights hidden">
+                <h5>🔍 Key Insights</h5>
+                <ul id="highlightsList" class="highlights-list">
+                  <!-- Populated dynamically -->
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Auto-extracted info cards -->
+          <div class="info-cards">
+            <div class="info-card">
+              <div class="info-label">👤 Name</div>
+              <input type="text" id="noteName" class="info-input" placeholder="Unknown">
+            </div>
+            <div class="info-card">
+              <div class="info-label">🎂 Age</div>
+              <input type="text" id="noteAge" class="info-input" placeholder="Unknown">
+            </div>
+            <div class="info-card">
+              <div class="info-label">📍 Location</div>
+              <input type="text" id="noteLocation" class="info-input" placeholder="Unknown">
+            </div>
+            <div class="info-card">
+              <div class="info-label">💼 Job/Occupation</div>
+              <input type="text" id="noteJob" class="info-input" placeholder="Unknown">
+            </div>
+          </div>
+
+          <div class="notes-group">
+            <label>🎯 Hobbies & Interests</label>
+            <textarea id="noteHobbies" class="notes-textarea" placeholder="What do they like?"></textarea>
+          </div>
+
+          <div class="notes-group">
+            <label>🔥 Kinks & Preferences</label>
+            <textarea id="noteKinks" class="notes-textarea" placeholder="What turns them on?"></textarea>
+          </div>
+
+          <div class="notes-group">
+            <label>📝 Other Notes</label>
+            <textarea id="noteOther" class="notes-textarea" placeholder="Anything else..."></textarea>
+          </div>
+
+          <div class="notes-actions">
+            <button id="saveNotesBtn" class="btn btn-primary">💾 Save Notes</button>
+            <button id="clearNotesBtn" class="btn btn-secondary">🗑️ Clear</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SCRIPTS TAB -->
+      <div id="scriptsTab" class="tab-content">
+        <!-- VIEW 1: Script List -->
+        <div id="scriptListView" class="scripts-section">
+          <div class="script-list-header">
+            <h3>📋 My Scripts</h3>
+            <div class="script-list-actions">
+              <button id="aiGenerateScriptBtn" class="btn btn-small btn-primary" title="AI Generate Script">✨ AI Generate</button>
+              <button id="importTemplatesBtn" class="btn btn-small btn-secondary" title="Import from Templates">📥 Templates</button>
+            </div>
+          </div>
+          
+          <!-- Inline Create Script Form -->
+          <div id="newScriptForm" class="inline-form">
+            <input type="text" id="newScriptNameInput" class="inline-input" placeholder="New script name...">
+            <button id="createScriptBtn" class="btn btn-small btn-primary">Create</button>
+          </div>
+          
+          <div id="scriptList" class="script-list">
+            <!-- Scripts populated dynamically -->
+          </div>
+        </div>
+
+        <!-- VIEW 2: Script Editor -->
+        <div id="scriptEditorView" class="scripts-section hidden">
+          <div class="editor-top-bar">
+            <button id="backToListBtn" class="btn btn-small">← Back</button>
+            <input type="text" id="editScriptName" class="script-name-input" placeholder="Script Name">
+          </div>
+
+          <div id="editorSections" class="editor-sections">
+            <!-- Sections populated dynamically -->
+          </div>
+
+          <!-- Add Section Area -->
+          <div class="add-section-area">
+            <h4 class="add-section-title">➕ Add New Section</h4>
+            <div id="addSectionForm" class="inline-form">
+              <input type="text" id="newSectionNameInput" class="inline-input" placeholder="Enter section name (e.g., 'Opening', 'Build Rapport')...">
+              <button id="addSectionBtn" class="btn btn-small btn-primary">Add Section</button>
+            </div>
+          </div>
+
+          <!-- Script Timing Settings -->
+          <div class="script-timing-settings">
+            <h4 class="timing-settings-title">⏰ Timing & Scheduling</h4>
+            
+            <div class="form-row">
+              <div class="form-group" style="flex: 1;">
+                <label>Script Order:</label>
+                <input type="number" id="scriptOrder" class="timing-input" placeholder="1" min="0" step="1" style="width: 80px;">
+                <small class="form-hint">Lower = runs first</small>
+              </div>
+              <div class="form-group" style="flex: 1;">
+                <label>📅 Subscriber Day:</label>
+                <div class="day-number-input">
+                  <button type="button" class="day-btn day-down" id="dayDownBtn">−</button>
+                  <input type="number" id="scriptSubscriberDay" class="timing-input day-input" placeholder="Any" min="1" step="1">
+                  <button type="button" class="day-btn day-up" id="dayUpBtn">+</button>
+                </div>
+                <small class="form-hint">Run on Day X of subscription</small>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label>Schedule Type:</label>
+              <select id="scriptScheduleType" class="timing-mode-select">
+                <option value="anytime">📆 Anytime (No Schedule)</option>
+                <option value="specific-day">📅 Specific Day of Week</option>
+                <option value="day-range">📆 Day Range (e.g., Mon-Fri)</option>
+              </select>
+            </div>
+
+            <div class="form-group script-schedule-day-group hidden">
+              <label>Scheduled Day:</label>
+              <select id="scriptScheduledDay" class="timing-mode-select">
+                <option value="">Select a day...</option>
+                <option value="monday">Monday</option>
+                <option value="tuesday">Tuesday</option>
+                <option value="wednesday">Wednesday</option>
+                <option value="thursday">Thursday</option>
+                <option value="friday">Friday</option>
+                <option value="saturday">Saturday</option>
+                <option value="sunday">Sunday</option>
+              </select>
+              <small class="form-hint">This script will only be active on this day</small>
+            </div>
+
+            <div class="form-group script-schedule-range-group hidden">
+              <label>Day Range:</label>
+              <div class="form-row">
+                <select id="scriptScheduleStartDay" class="timing-mode-select">
+                  <option value="monday">Monday</option>
+                  <option value="tuesday">Tuesday</option>
+                  <option value="wednesday">Wednesday</option>
+                  <option value="thursday">Thursday</option>
+                  <option value="friday">Friday</option>
+                  <option value="saturday">Saturday</option>
+                  <option value="sunday">Sunday</option>
+                </select>
+                <span style="padding: 10px;">to</span>
+                <select id="scriptScheduleEndDay" class="timing-mode-select">
+                  <option value="monday">Monday</option>
+                  <option value="tuesday">Tuesday</option>
+                  <option value="wednesday">Wednesday</option>
+                  <option value="thursday">Thursday</option>
+                  <option value="friday" selected>Friday</option>
+                  <option value="saturday">Saturday</option>
+                  <option value="sunday">Sunday</option>
+                </select>
+              </div>
+              <small class="form-hint">This script will be active during these days</small>
+            </div>
+
+            <div class="form-group">
+              <label>⏱️ Break After Script (Minutes):</label>
+              <input type="number" id="scriptMinMinutes" class="timing-input" placeholder="30" min="0" step="5" style="width: 100px;">
+              <small class="form-hint">How long to wait after completing this script before moving to the next one</small>
+            </div>
+
+            <div class="form-group">
+              <label>🕐 Active Hours (Optional):</label>
+              <small class="form-hint" style="margin-top: 0; margin-bottom: 8px; display: block;">Set when this script can run (uses profile's timezone)</small>
+              <div class="time-range-inputs">
+                <div class="time-input-group">
+                  <label class="time-input-label">Not Before:</label>
+                  <input type="time" id="scriptNotBeforeTime" class="timing-input">
+                </div>
+                <span class="time-range-separator">—</span>
+                <div class="time-input-group">
+                  <label class="time-input-label">Not After:</label>
+                  <input type="time" id="scriptNotAfterTime" class="timing-input">
+                </div>
+              </div>
+              <small class="form-hint">Leave empty to allow anytime. E.g., 09:00 to 23:00 = only respond 9am-11pm</small>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="scriptAutoSwitch">
+                <span>Auto-switch to next script when complete</span>
+              </label>
+              <small class="form-hint">Automatically load the next appropriate script based on relationship stage</small>
+            </div>
+          </div>
+
+          <!-- Image Pool Settings -->
+          <div class="script-image-pool-settings">
+            <h4 class="timing-settings-title">📸 Image Pool (for "send pics" requests)</h4>
+            <small class="form-hint" style="display: block; margin-bottom: 12px;">
+              When a subscriber asks for images, these will be sent. If empty, falls back to situational preset.
+            </small>
+            
+            <div class="image-pool-container">
+              <div id="imagePoolGrid" class="image-pool-grid">
+                <!-- Images populated dynamically -->
+              </div>
+              <div class="image-pool-actions">
+                <label class="btn btn-secondary btn-sm image-upload-btn">
+                  ➕ Add Images
+                  <input type="file" id="imagePoolUpload" accept="image/*,video/mp4,video/webm,video/quicktime" style="display: none;">
+                </label>
+                <button type="button" id="clearImagePoolBtn" class="btn btn-secondary btn-sm btn-danger">🗑️ Clear All</button>
+              </div>
+            </div>
+            
+            <div class="form-group" style="margin-top: 12px;">
+              <label class="checkbox-label">
+                <input type="checkbox" id="imagePoolRandomize" checked>
+                <span>Randomize image selection</span>
+              </label>
+              <small class="form-hint">If unchecked, images will be sent in order</small>
+            </div>
+          </div>
+
+          <div class="editor-actions">
+            <button id="saveScriptBtn" class="btn btn-primary">💾 Save Script</button>
+            <button id="shareScriptBtn" class="btn btn-secondary">📤 Share to Profile</button>
+            <button id="deleteScriptBtn" class="btn btn-secondary btn-danger">🗑️ Delete Script</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Packages/Shop Modal -->
+    <div id="packagesModal" class="modal hidden">
+      <div class="modal-content modal-content-large">
+        <div class="modal-header">
+          <h3>🪙 Buy Credits</h3>
+          <button id="closePackagesModalBtn" class="icon-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="current-balance">
+            <span class="balance-label">Current Balance:</span>
+            <span id="modalCreditsBalance" class="balance-amount">0 credits</span>
+          </div>
+          
+          <div class="packages-grid">
+            <!-- Starter Package -->
+            <div class="package-card" data-package="starter">
+              <div class="package-header">
+                <h4 class="package-name">Starter</h4>
+                <span class="package-discount">25% OFF</span>
+              </div>
+              <div class="package-credits">39,600</div>
+              <div class="package-credits-label">credits</div>
+              <div class="package-price">
+                <span class="price-original">$132</span>
+                <span class="price-current">$99</span>
+              </div>
+              <ul class="package-features">
+                <li>~39,600 messages</li>
+                <li>All features included</li>
+              </ul>
+              <button class="btn btn-primary package-buy-btn" data-package="starter">Buy Now</button>
+            </div>
+
+            <!-- Pro Package -->
+            <div class="package-card popular" data-package="pro">
+              <div class="package-badge">POPULAR</div>
+              <div class="package-header">
+                <h4 class="package-name">Pro</h4>
+                <span class="package-discount">35% OFF</span>
+              </div>
+              <div class="package-credits">99,600</div>
+              <div class="package-credits-label">credits</div>
+              <div class="package-price">
+                <span class="price-original">$383</span>
+                <span class="price-current">$249</span>
+              </div>
+              <ul class="package-features">
+                <li>~99,600 messages</li>
+                <li>Priority support</li>
+              </ul>
+              <button class="btn btn-primary package-buy-btn" data-package="pro">Buy Now</button>
+            </div>
+
+            <!-- Enterprise Package -->
+            <div class="package-card" data-package="enterprise">
+              <div class="package-header">
+                <h4 class="package-name">Enterprise</h4>
+                <span class="package-discount">45% OFF</span>
+              </div>
+              <div class="package-credits">398,000</div>
+              <div class="package-credits-label">credits</div>
+              <div class="package-price">
+                <span class="price-original">$1,809</span>
+                <span class="price-current">$995</span>
+              </div>
+              <ul class="package-features">
+                <li>~398,000 messages</li>
+                <li>Best value!</li>
+              </ul>
+              <button class="btn btn-primary package-buy-btn" data-package="enterprise">Buy Now</button>
+            </div>
+
+            <!-- Custom Package -->
+            <div class="package-card custom" data-package="custom">
+              <div class="package-header">
+                <h4 class="package-name">Custom</h4>
+                <span class="package-discount">up to 50% OFF</span>
+              </div>
+              <div class="package-credits">Custom</div>
+              <div class="package-credits-label">amount</div>
+              <div class="package-price">
+                <span class="price-current">Contact Us</span>
+              </div>
+              <ul class="package-features">
+                <li>Volume discounts</li>
+                <li>Dedicated support</li>
+              </ul>
+              <button class="btn btn-secondary package-buy-btn" data-package="custom">Contact</button>
+            </div>
+          </div>
+
+          <div class="credit-info">
+            <p>💡 <strong>1 credit = $0.0025</strong> (usage-based pricing)</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Action Modal -->
+    <div id="actionModal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>➕ Add Action</h3>
+          <button id="closeActionModalBtn" class="icon-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Action Type:</label>
+            <div class="action-type-selector" id="actionTypeSelector">
+              <button class="action-type-btn selected" data-type="text">
+                <span class="action-type-icon">💬</span>
+                <span class="action-type-label">Text</span>
+              </button>
+              <button class="action-type-btn" data-type="voice">
+                <span class="action-type-icon">🎤</span>
+                <span class="action-type-label">Voice</span>
+              </button>
+              <button class="action-type-btn" data-type="media">
+                <span class="action-type-icon">📸</span>
+                <span class="action-type-label">Media</span>
+              </button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Goal:</label>
+            <textarea id="actionGoalInput" placeholder="What should this action achieve? e.g., 'Build rapport and ask about their day'"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Tone:</label>
+            <select id="actionToneSelect">
+              <option value="">Same as profile default</option>
+              <option value="sweet">💕 Sweet</option>
+              <option value="flirty">😏 Flirty</option>
+              <option value="spicy">🔥 Spicy</option>
+              <option value="dominant">😈 Dominant</option>
+              <option value="submissive">🥺 Submissive</option>
+              <option value="casual">💬 Casual</option>
+            </select>
+            <small class="form-hint">Tone will auto-switch when this action is active</small>
+          </div>
+          <div class="form-group action-price-group hidden" id="actionPriceGroup">
+            <label>Price: $</label>
+            <input type="number" id="actionPriceInput" placeholder="0" min="0" step="1">
+            <small class="form-hint">Enter 0 for free content</small>
+          </div>
+          
+          <!-- Vault Item Scan Group (for PPV actions) -->
+          <div class="form-group vault-scan-group hidden" id="vaultScanGroup">
+            <label>Vault Item</label>
+            <button type="button" id="scanVaultBtn" class="btn btn-secondary btn-sm">🎯 Scan Vault Item</button>
+            <div id="vaultItemPreview" class="vault-item-preview hidden"></div>
+            <small class="form-hint">Open the OnlyFans vault and click Scan to link a specific item</small>
+          </div>
+
+          <!-- Image Pool Select Group (for Telegram media actions) -->
+          <div class="form-group image-pool-select-group hidden" id="imagePoolSelectGroup">
+            <label>📸 Image from Pool</label>
+            <button type="button" id="selectPoolImageBtn" class="btn btn-secondary btn-sm">📸 Select from Pool</button>
+            <div id="poolImagePreview" class="pool-image-preview hidden"></div>
+            <small class="form-hint">Select an image from your pool to send in this step</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="addActionBtn" class="btn btn-primary">➕ Add Action</button>
+          <button id="cancelActionBtn" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Templates Modal -->
+    <div id="templatesModal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>📥 Import from Templates</h3>
+          <button id="closeTemplatesModalBtn" class="icon-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-description">Select templates to copy to your current profile:</p>
+          <div id="templatesLoading" class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading templates...</p>
+          </div>
+          <div id="templatesList" class="templates-list hidden">
+            <!-- Templates populated dynamically -->
+          </div>
+          <div id="noTemplatesMessage" class="empty-state hidden">
+            <p>No templates available</p>
+            <small>Create scripts and save them as templates to share across profiles</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="importSelectedBtn" class="btn btn-primary" disabled>📥 Import Selected</button>
+          <button id="importAllBtn" class="btn btn-secondary">Import All</button>
+          <button id="cancelTemplatesBtn" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Script Builder Modal -->
+    <div id="scriptBuilderModal" class="modal hidden">
+      <div class="modal-content modal-content-large">
+        <div class="modal-header">
+          <h3>✨ AI Script Builder</h3>
+          <button id="closeScriptBuilderBtn" class="icon-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- Category Selection -->
+          <div class="form-group">
+            <label>📂 Category:</label>
+            <div class="category-selector" id="categorySelector">
+              <button class="category-btn selected" data-category="casual">
+                <span class="category-icon">💕</span>
+                <span class="category-name">Casual</span>
+                <span class="category-desc">GFE vibes</span>
+              </button>
+              <button class="category-btn" data-category="sexting">
+                <span class="category-icon">🔥</span>
+                <span class="category-name">Sexting</span>
+                <span class="category-desc">Hot escalation</span>
+              </button>
+              <button class="category-btn" data-category="ppv">
+                <span class="category-icon">💰</span>
+                <span class="category-name">PPV Sales</span>
+                <span class="category-desc">Quick sell</span>
+              </button>
+              <button class="category-btn" data-category="welcome">
+                <span class="category-icon">🎁</span>
+                <span class="category-name">Welcome</span>
+                <span class="category-desc">New subs</span>
+              </button>
+              <button class="category-btn" data-category="reengagement">
+                <span class="category-icon">💫</span>
+                <span class="category-name">Win-back</span>
+                <span class="category-desc">Re-engage</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Script Idea/Prompt -->
+          <div class="form-group">
+            <label>💡 Script Idea:</label>
+            <textarea id="scriptPromptInput" class="script-prompt-input" placeholder="Describe your script concept...&#10;&#10;e.g., Shower tease leading to exclusive behind-the-scenes content, building anticipation throughout the day"></textarea>
+          </div>
+
+          <!-- Action Count Slider -->
+          <div class="form-group">
+            <label>📊 Number of Actions: <span id="actionCountDisplay" class="action-count-display">15</span></label>
+            <div class="slider-container">
+              <span class="slider-min">5</span>
+              <input type="range" id="actionCountSlider" class="action-slider" min="5" max="50" value="15">
+              <span class="slider-max">50</span>
+            </div>
+            <small class="form-hint">More actions = longer, more detailed script</small>
+          </div>
+
+          <!-- Generation Status -->
+          <div id="scriptBuilderLoading" class="loading-state hidden">
+            <div class="spinner"></div>
+            <p>Generating your script...</p>
+          </div>
+
+          <!-- Generated Script Preview -->
+          <div id="scriptPreview" class="script-preview hidden">
+            <div class="preview-header">
+              <h4>📋 Preview</h4>
+              <input type="text" id="generatedScriptName" class="preview-name-input" placeholder="Script Name">
+            </div>
+            <div id="previewStages" class="preview-stages">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="generateScriptBtn" class="btn btn-primary">✨ Generate Script</button>
+          <button id="saveGeneratedScriptBtn" class="btn btn-primary hidden">💾 Save to Profile</button>
+          <button id="regenerateScriptBtn" class="btn btn-secondary hidden">🔄 Regenerate</button>
+          <button id="cancelScriptBuilderBtn" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- API Keys Modal -->
+    <div id="apiKeysModal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>🔑 API Keys</h3>
+          <button id="closeApiKeysModalBtn" class="icon-btn">✕</button>
+        </div>
+        <div class="modal-body">
+          <!-- Current Status -->
+          <div id="apiKeyStatus" class="api-key-status">
+            <div class="status-indicator">
+              <span class="status-icon" id="apiKeyStatusIcon">💳</span>
+              <span class="status-text" id="apiKeyStatusText">Using credits</span>
+            </div>
+          </div>
+          
+          <!-- Grok API Key -->
+          <div class="form-section">
+            <div class="form-section-title">🤖 Grok API Key</div>
+            <p class="form-hint" style="margin-bottom: 12px;">
+              Enter your own Grok API key for unlimited AI access. Get one at <a href="https://x.ai/api" target="_blank">x.ai/api</a>
+            </p>
+            
+            <div id="apiKeyInputSection">
+              <div class="form-group">
+                <label>API Key:</label>
+                <input type="password" id="grokApiKeyInput" placeholder="xai-..." autocomplete="off">
+              </div>
+              <div class="api-key-actions">
+                <button id="saveApiKeyBtn" class="btn btn-primary">💾 Save Key</button>
+                <button id="removeApiKeyBtn" class="btn btn-secondary btn-danger hidden">🗑️ Remove Key</button>
+              </div>
+            </div>
+            
+            <div id="apiKeySaving" class="loading-state hidden">
+              <div class="spinner"></div>
+              <p>Validating API key...</p>
+            </div>
+          </div>
+          
+          <!-- Benefits -->
+          <div class="api-key-benefits">
+            <h4>Benefits of using your own key:</h4>
+            <ul>
+              <li>✅ Unlimited AI responses</li>
+              <li>✅ No credit deductions</li>
+              <li>✅ Direct access to Grok API</li>
+            </ul>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="closeApiKeysBtn" class="btn btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Calendar Timeline Modal -->
+    <div id="calendarModal" class="modal hidden">
+      <div class="calendar-modal-content">
+        <div class="calendar-modal-header">
+          <h3>📅 Script Timeline</h3>
+          <button id="closeCalendarModalBtn" class="icon-btn">✕</button>
+        </div>
+        <div class="calendar-modal-body">
+          <div id="calendarGrid">
+            <!-- Calendar grid populated dynamically -->
+          </div>
+          <div class="calendar-legend">
+            <div class="legend-item">
+              <div class="legend-dot script"></div>
+              <span>Script</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-dot break"></div>
+              <span>Break/Free</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-dot now"></div>
+              <span>Now</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <small>v1.0</small>
+    </footer>
+  </div>
+
+  <!-- Configuration must load first -->
+  <script src="config.js"></script>
+  <script src="firebase.js"></script>
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
