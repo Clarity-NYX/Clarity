@@ -1,0 +1,45 @@
+{
+  "env": {
+    "browser": true,
+    "es2021": true,
+    "webextensions": true
+  },
+  "extends": [
+    "eslint:recommended"
+  ],
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module"
+  },
+  "globals": {
+    "chrome": "readonly"
+  },
+  "rules": {
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "no-console": "off",
+    "prefer-const": "warn",
+    "no-var": "error",
+    "eqeqeq": ["warn", "smart"],
+    "curly": ["warn", "multi-line"],
+    "no-throw-literal": "error",
+    "no-eval": "error",
+    "no-implied-eval": "error",
+    "no-new-func": "error",
+    "no-script-url": "error",
+    "no-prototype-builtins": "warn",
+    "no-useless-escape": "warn",
+    "no-empty": ["warn", { "allowEmptyCatch": true }],
+    "no-extra-boolean-cast": "warn",
+    "no-irregular-whitespace": "warn",
+    "no-unreachable": "error",
+    "valid-typeof": "error",
+    "no-undef": "error",
+    "no-redeclare": "error",
+    "no-constant-condition": ["warn", { "checkLoops": false }]
+  },
+  "ignorePatterns": [
+    "node_modules/",
+    "dist/",
+    "*.min.js"
+  ]
+}

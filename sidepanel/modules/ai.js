@@ -3,7 +3,7 @@
 // ============================================================
 
 import Store from '../state/store.js';
-import { $, hide, show } from '../utils/dom.js';
+import { $, hide, show, escapeHtml } from '../utils/dom.js';
 import { showNotification, showError, hideError, showLoading } from '../utils/notify.js';
 import API, { detectPlatform } from '../utils/api.js';
 import { checkGoalCompletion, renderScriptStages, getCurrentIncompleteAction, isActionCompleted, getSubscriberScriptStats, autoSkipSatisfiedGoals, getActionForGeneration } from './scripts/index.js';
@@ -55,13 +55,6 @@ const getSubscriberIdFromTabUrl = (url) => {
   }
   
   return null;
-};
-
-// Escape HTML to prevent XSS
-const escapeHtml = (text) => {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
 };
 
 // ============================================================
