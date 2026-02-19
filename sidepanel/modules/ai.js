@@ -1795,13 +1795,15 @@ const loadTestMediaGrid = () => {
   
   console.log('[Test Media] 📸 Found', imagePool.length, 'images in pool');
   
-  // Render image grid
+  // Render image grid - escape user-controlled names to prevent XSS
   grid.innerHTML = imagePool.map((img, index) => {
     const imageUrl = img.downloadURL || img.imageData;
+    const safeName = escapeHtml(img.name || 'Image ' + (index + 1));
+    const safeAlt = escapeHtml(img.name || 'Image');
     return `
       <div class="test-media-item" data-index="${index}" data-id="${img.id || index}">
-        <img src="${imageUrl}" alt="${img.name || 'Image'}">
-        <div class="test-media-item-name">${img.name || 'Image ' + (index + 1)}</div>
+        <img src="${imageUrl}" alt="${safeAlt}">
+        <div class="test-media-item-name">${safeName}</div>
       </div>
     `;
   }).join('');

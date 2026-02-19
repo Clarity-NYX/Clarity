@@ -6,6 +6,76 @@ import { API } from './api.js';
 import { AutoChatState, startAutoChatMonitoring, stopAutoChatMonitoring, loadBlockedUsers, blockUser, handleUserBlocked, onMessageSent, handleNewUnreads, handleChatListUpdate, notifyStateChange, updateChatScriptProgress, handleUnreadsAtTop } from './autochat.js';
 import { handleOFAutoChatMessage, handleChatListPush, retryChat, setAlarmMuted, OFAutoChatState, handleGenerationResult } from './autochat-onlyfans.js';
 
+// ============================================================
+// INPUT VALIDATION HELPERS
+// ============================================================
+
+/**
+ * Validate that a value is a non-empty string
+ */
+const isValidString = (value) => typeof value === 'string' && value.trim().length > 0;
+
+/**
+ * Validate that a value is a valid ID (string or number, non-empty)
+ */
+const isValidId = (value) => {
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'number') return !isNaN(value) && isFinite(value);
+  return false;
+};
+
+/**
+ * Validate that a value is an object
+ */
+const isValidObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * Validate that a value is an array
+ */
+const isValidArray = (value) => Array.isArray(value);
+
+/**
+ * Sanitize string input - remove potential XSS vectors
+ */
+const sanitizeString = (value) => {
+  if (typeof value !== 'string') return '';
+  // Remove potential script tags and event handlers
+  return value
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/on\w+\s*=/gi, '')
+    .trim();
+};
+
+/**
+ * Validate profile ID
+ */
+const validateProfileId = (data) => {
+  if (!data || !isValidId(data.profileId)) {
+    return { valid: false, error: 'Invalid or missing profile ID' };
+  }
+  return { valid: true };
+};
+
+/**
+ * Validate script ID
+ */
+const validateScriptId = (data) => {
+  if (!data || !isValidId(data.scriptId)) {
+    return { valid: false, error: 'Invalid or missing script ID' };
+  }
+  return { valid: true };
+};
+
+/**
+ * Validate subscriber ID
+ */
+const validateSubscriberId = (data) => {
+  if (!data || !isValidId(data.subscriberId)) {
+    return { valid: false, error: 'Invalid or missing subscriber ID' };
+  }
+  return { valid: true };
+};
+
 export const handlers = {
   // AI Handlers
   async GENERATE_RESPONSE(data) {

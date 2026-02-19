@@ -542,11 +542,15 @@ export async function sendImageToChat(imageData, caption = null) {
         textInput.focus();
         await sleep(100);
         
-        // Type caption
+        // Type caption - use textContent to prevent XSS
         if (textInput.tagName === 'TEXTAREA' || textInput.tagName === 'INPUT') {
           textInput.value = caption;
         } else {
-          textInput.innerHTML = `<p>${caption}</p>`;
+          // For contenteditable divs, create a paragraph element safely
+          const p = document.createElement('p');
+          p.textContent = caption;
+          textInput.innerHTML = '';
+          textInput.appendChild(p);
         }
         textInput.dispatchEvent(new Event('input', { bubbles: true }));
         await sleep(200);

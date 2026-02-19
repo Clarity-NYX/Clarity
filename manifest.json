@@ -16,8 +16,6 @@
   "host_permissions": [
     "https://onlyfans.com/*",
     "https://web.telegram.org/*",
-    "http://localhost:3001/*",
-    "http://127.0.0.1:3001/*",
     "https://firebasestorage.googleapis.com/*"
   ],
   "background": {
