@@ -600,15 +600,72 @@ export async function triggerAIGeneration(peerId, autoSend = false) {
                 console.log('[Workflow] ✅ Image + caption sent for MEDIA action!');
               }
               
-              // Wait longer for image to fully upload/send before marking complete
+              // Wait longer for image to fully upload/send before sending follow-up text
               console.log('[Workflow] ⏳ Waiting for image upload to complete...');
-              await new Promise(r => setTimeout(r, 4000)); // Increased from 2000ms to 4000ms
+              await new Promise(r => setTimeout(r, 4000));
               
-              // Mark image as sent
+              // Mark image as sent to subscriber (tracking)
               const imageIdToMark = imageToSend.id || imageToSend.name;
               if (imageIdToMark && currentSubscriberId) {
                 imagePoolModule.markImageSentToSubscriber(currentSubscriberId, imageIdToMark);
                 console.log(`[Workflow] 📝 Marked image "${imageIdToMark}" as sent to ${currentSubscriberId}`);
+              }
+              
+              // ========== GENERATE & SEND FOLLOW-UP TEXT MESSAGE ==========
+              // Media actions should also send a text message (same as text actions)
+              // using the action's goal to guide the AI response
+              console.log('[Workflow] 💬 Generating follow-up text for media action...');
+              try {
+                const aiModule = await import('../ai.js');
+                const rawResponse = await aiModule.generateResponseText();
+                
+                if (rawResponse) {
+                  // Parse response (same logic as text actions)
+                  let followUpMessages = [];
+                  
+                  try {
+                    if (rawResponse.startsWith('[') && rawResponse.endsWith(']')) {
+                      const parsed = JSON.parse(rawResponse);
+                      if (Array.isArray(parsed)) {
+                        followUpMessages = parsed.filter(m => typeof m === 'string' && m.trim()).map(m => m.trim());
+                      }
+                    }
+                  } catch (e) { /* not JSON */ }
+                  
+                  if (followUpMessages.length === 0 && rawResponse.includes('|||')) {
+                    followUpMessages = rawResponse.split('|||').map(m => m.trim()).filter(m => m.length > 0);
+                  }
+                  
+                  if (followUpMessages.length === 0) {
+                    followUpMessages = [rawResponse.trim()];
+                  }
+                  
+                  console.log(`[Workflow] 💬 Sending ${followUpMessages.length} follow-up message(s) after image...`);
+                  
+                  for (let i = 0; i < followUpMessages.length; i++) {
+                    const msg = followUpMessages[i];
+                    console.log(`[Workflow] 📤 Follow-up ${i + 1}/${followUpMessages.length}: "${msg.substring(0, 40)}..."`);
+                    
+                    const sendResult = await chrome.tabs.sendMessage(tabs[0].id, {
+                      type: 'SEND_MESSAGE',
+                      text: msg
+                    });
+                    
+                    if (!sendResult?.success) {
+                      console.log('[Workflow] ⚠️ Follow-up send failed:', sendResult?.error);
+                    }
+                    
+                    if (i < followUpMessages.length - 1) {
+                      await new Promise(r => setTimeout(r, 1500));
+                    }
+                  }
+                  
+                  console.log('[Workflow] ✅ Follow-up text sent after image!');
+                } else {
+                  console.log('[Workflow] ⚠️ No AI response for follow-up, image was sent alone');
+                }
+              } catch (followUpErr) {
+                console.log('[Workflow] ⚠️ Follow-up text error (image was still sent):', followUpErr.message);
               }
               
               // Mark script action complete
