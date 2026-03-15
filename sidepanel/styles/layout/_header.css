@@ -207,6 +207,46 @@
   background: var(--border);
 }
 
+/* Refresh button in subscriber info bar */
+.sub-refresh-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-light);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-base);
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.sub-refresh-btn:hover {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+  transform: rotate(90deg);
+}
+
+.sub-refresh-btn:active {
+  transform: rotate(180deg) scale(0.95);
+}
+
+.sub-refresh-btn.spinning {
+  animation: refreshSpin 0.8s linear infinite;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+@keyframes refreshSpin {
+  to { transform: rotate(360deg); }
+}
+
 /* Footer */
 .footer {
   padding: var(--spacing-sm);

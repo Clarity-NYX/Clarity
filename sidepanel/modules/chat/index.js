@@ -39,7 +39,8 @@ export {
   handleIncomingMessages,
   loadAndSyncChat,
   setupTabWatcher,
-  detectAndSyncChat
+  detectAndSyncChat,
+  forceRefreshSubscriberStats
 } from './chatSync.js';
 
 // Re-export from message listener
@@ -47,10 +48,15 @@ export {
   setupMessageListener
 } from './messageListener.js';
 
+import { $ } from '../../utils/dom.js';
+
 // Main setup function
 export const setupChat = () => {
   setupWindowCloseHandlers();
   setupChatListListeners();
   setupTabWatcher();
   setupMessageListener();
+  
+  // Refresh subscriber info button
+  $('refreshSubInfoBtn')?.addEventListener('click', () => forceRefreshSubscriberStats());
 };

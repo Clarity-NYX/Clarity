@@ -303,6 +303,36 @@ const requestChatFromPageDirect = async () => {
   });
 };
 
+// Force refresh subscriber stats (manual button click - bypasses cache)
+export const forceRefreshSubscriberStats = async () => {
+  const currentSubscriberId = Store.get('currentSubscriberId');
+  if (!currentSubscriberId) {
+    showNotification('No subscriber loaded');
+    return;
+  }
+  
+  // Clear the cache flag so fetchSubscriberStats actually fetches
+  const storedChat = Store.get('storedChat') || {};
+  if (storedChat.notes) {
+    delete storedChat.notes.statsFetchAttempted;
+    Store.set('storedChat', storedChat);
+  }
+  
+  // Add spinning animation to button
+  const btn = $('refreshSubInfoBtn');
+  btn?.classList.add('spinning');
+  
+  try {
+    await fetchSubscriberStats();
+    showNotification('Subscriber info refreshed!');
+  } catch (e) {
+    console.error('[Chat] Force refresh error:', e);
+    showNotification('Failed to refresh stats');
+  } finally {
+    btn?.classList.remove('spinning');
+  }
+};
+
 // Fetch subscriber stats
 export const fetchSubscriberStats = async () => {
   const currentSubscriberId = Store.get('currentSubscriberId');
