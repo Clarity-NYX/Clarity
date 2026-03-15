@@ -21,6 +21,7 @@ import {
   // Chat sync functionality
   loadAndSyncChat,
   setupTabWatcher,
+  forceRefreshSubscriberStats,
   
   // Message listener
   setupMessageListener,
@@ -55,6 +56,7 @@ export {
   setupMessageListener,
   loadAndSyncChat,
   setupTabWatcher,
+  forceRefreshSubscriberStats,
   showChatListView,
   showConversationView,
   loadChatList,

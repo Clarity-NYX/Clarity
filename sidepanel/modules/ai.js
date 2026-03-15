@@ -181,9 +181,15 @@ const showPreviewInChat = (responseText, mediaInfo = null) => {
   // Append to chat
   chatMessages.appendChild(previewContainer);
   
-  // Scroll to show the preview
+  // Scroll so the last real message stays visible above the preview
   setTimeout(() => {
-    previewContainer.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    const allMessages = chatMessages.querySelectorAll('.message:not(.message-preview)');
+    const lastRealMsg = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+    if (lastRealMsg) {
+      lastRealMsg.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
   }, 100);
   
   // Attach event listeners to preview buttons
@@ -1058,6 +1064,14 @@ export const generateResponse = async () => {
     
     // Get profile info (YOUR persona's name, age, location, etc.)
     const profileInfo = getProfileContext();
+    
+    // DEBUG: Log what goal is being sent to the AI
+    console.log('[AI] ═══════════════════════════════════════════');
+    console.log('[AI] 🎯 SENDING TO API:');
+    console.log('[AI]   actionGoal:', currentAction?.goal || '❌ NONE (freestyle mode)');
+    console.log('[AI]   stage:', currentAction?.stageName || 'N/A');
+    console.log('[AI]   tone:', tone);
+    console.log('[AI] ═══════════════════════════════════════════');
     
     const response = await API.generateResponse({
       summary: Store.get('summary'),

@@ -230,6 +230,7 @@ body.telegram-platform #chatListView {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
+  min-height: 180px;
 }
 
 /* Empty State */
@@ -1017,6 +1018,70 @@ body.telegram-platform .ai-message-part::after {
 .chat-list-item.unread .chat-list-time {
   color: #f59e0b;
   font-weight: 600;
+}
+
+/* ===========================================
+   Spent Badge & Spending Tier System
+   =========================================== */
+
+.chat-list-top-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Spent Badge - pill-shaped amount display */
+.spent-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+  color: var(--tier-color, #6b7280);
+  background: color-mix(in srgb, var(--tier-color, #6b7280) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tier-color, #6b7280) 30%, transparent);
+  line-height: 1.3;
+}
+
+/* Tier-specific badge glow for high tiers */
+.spent-badge.tier-vip,
+.spent-badge.tier-elite,
+.spent-badge.tier-whale {
+  text-shadow: 0 0 6px color-mix(in srgb, var(--tier-color) 40%, transparent);
+}
+
+.spent-badge.tier-whale {
+  animation: whaleShimmer 3s ease-in-out infinite;
+  font-weight: 800;
+}
+
+@keyframes whaleShimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; filter: brightness(1.2); }
+}
+
+/* Tier card border accents (left border + subtle gradient bg) */
+.chat-list-item.tier-starter { border-left: 3px solid #4ade80; }
+.chat-list-item.tier-fan { border-left: 3px solid #2dd4bf; }
+.chat-list-item.tier-loyal { border-left: 3px solid #38bdf8; }
+.chat-list-item.tier-vip { border-left: 3px solid #818cf8; }
+.chat-list-item.tier-elite { border-left: 3px solid #a855f7; }
+.chat-list-item.tier-whale {
+  border-left: 3px solid #ec4899;
+  box-shadow: 0 0 12px rgba(236, 72, 153, 0.15);
+}
+
+/* Override hover for tiered cards */
+.chat-list-item.tier-starter:hover { border-color: #4ade80; }
+.chat-list-item.tier-fan:hover { border-color: #2dd4bf; }
+.chat-list-item.tier-loyal:hover { border-color: #38bdf8; }
+.chat-list-item.tier-vip:hover { border-color: #818cf8; }
+.chat-list-item.tier-elite:hover { border-color: #a855f7; }
+.chat-list-item.tier-whale:hover {
+  border-color: #ec4899;
+  box-shadow: 0 0 20px rgba(236, 72, 153, 0.25);
 }
 
 /* Handle (username) */
@@ -1905,39 +1970,33 @@ body.telegram-platform .ai-message-part::after {
 
 .message.message-preview {
   background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-  border: 2px dashed rgba(255, 255, 255, 0.4);
+  border: 1px dashed rgba(255, 255, 255, 0.35);
   align-self: flex-end;
   position: relative;
-  animation: previewPulse 2s ease-in-out infinite;
-}
-
-@keyframes previewPulse {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 15px 5px rgba(34, 197, 94, 0.3);
-  }
+  padding: 6px 10px;
+  animation: none;
+  margin-top: 2px;
 }
 
 .message.message-preview::before {
   content: '✨ PREVIEW';
   position: absolute;
-  top: -10px;
-  right: 10px;
+  top: -8px;
+  right: 8px;
   background: #166534;
   color: #bbf7d0;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 8px;
+  padding: 1px 6px;
+  border-radius: 6px;
   letter-spacing: 0.5px;
+  line-height: 1.3;
 }
 
 .message-preview .message-text {
   color: white;
-  font-size: var(--font-size-base);
-  line-height: 1.5;
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
 }
 
 .message-preview .message-time {

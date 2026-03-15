@@ -4,6 +4,78 @@
 
 import { $, escapeHtml } from '../../utils/dom.js';
 import { showNotification } from '../../utils/notify.js';
+import Store from '../../state/store.js';
+import API from '../../utils/api.js';
+
+// ============================================================
+// SPENDING TIER SYSTEM
+// Color-coded tiers based on total subscriber spending
+// ============================================================
+
+const SPENDING_TIERS = [
+  { min: 0,      max: 0,        tier: 'free',     label: 'Free',       color: '#6b7280', glow: 'none' },
+  { min: 0.01,   max: 50,       tier: 'starter',  label: 'Starter',    color: '#4ade80', glow: 'rgba(74,222,128,0.15)' },
+  { min: 50.01,  max: 200,      tier: 'fan',      label: 'Fan',        color: '#2dd4bf', glow: 'rgba(45,212,191,0.18)' },
+  { min: 200.01, max: 500,      tier: 'loyal',    label: 'Loyal',      color: '#38bdf8', glow: 'rgba(56,189,248,0.20)' },
+  { min: 500.01, max: 1000,     tier: 'vip',      label: 'VIP',        color: '#818cf8', glow: 'rgba(129,140,248,0.22)' },
+  { min: 1000.01, max: 3000,    tier: 'elite',    label: 'Elite',      color: '#a855f7', glow: 'rgba(168,85,247,0.25)' },
+  { min: 3000.01, max: Infinity, tier: 'whale',   label: '🐋 Whale',  color: '#ec4899', glow: 'rgba(236,72,153,0.30)' }
+];
+
+/**
+ * Parse a spent string like "$1,234.56" to a number
+ */
+const parseSpentAmount = (spentStr) => {
+  if (!spentStr) return 0;
+  const cleaned = spentStr.toString().replace(/[^0-9.]/g, '');
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? 0 : num;
+};
+
+/**
+ * Get the spending tier for a given amount
+ */
+const getSpendingTier = (amount) => {
+  if (!amount || amount <= 0) return SPENDING_TIERS[0]; // free
+  for (const tier of SPENDING_TIERS) {
+    if (amount >= tier.min && amount <= tier.max) return tier;
+  }
+  return SPENDING_TIERS[SPENDING_TIERS.length - 1]; // whale fallback
+};
+
+// Cached spending data map: subscriberId -> { totalSpent, tier }
+let spendingDataCache = new Map();
+
+/**
+ * Load spending data for all chats from stored notes
+ */
+const loadSpendingData = async () => {
+  const profile = Store.get('currentProfile');
+  if (!profile?.id) return;
+  
+  try {
+    const result = await API.getChats(profile.id);
+    if (result.success && result.chats) {
+      spendingDataCache.clear();
+      for (const chat of result.chats) {
+        // chat.id is the Firestore doc ID (e.g., "of:123456")
+        // chat.notes.totalSpent is the scraped spending value (e.g., "$150.00")
+        const chatId = chat.id || chat.subscriberOFId;
+        if (chatId && chat.notes?.totalSpent) {
+          const amount = parseSpentAmount(chat.notes.totalSpent);
+          // Store with raw numeric ID (strip "of:" prefix) to match scraped chat list rawId
+          spendingDataCache.set(
+            chatId.replace(/^of:/, ''),
+            { totalSpent: chat.notes.totalSpent, amount, tier: getSpendingTier(amount) }
+          );
+        }
+      }
+      console.log(`[ChatList] Loaded spending data for ${spendingDataCache.size} subscribers`);
+    }
+  } catch (e) {
+    console.warn('[ChatList] Could not load spending data:', e.message);
+  }
+};
 
 // ============================================================
 // AUTO-CHAT STATE CACHE (for response previews)
@@ -113,6 +185,9 @@ export const loadChatList = async () => {
   if (chatListItems) chatListItems.innerHTML = '';
   
   try {
+    // Load spending data from stored notes (parallel with chat list scrape)
+    const spendingPromise = loadSpendingData();
+    
     // Request chat list from content script (scrapes from OnlyFans page)
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tabs[0]?.id || !tabs[0]?.url?.includes('onlyfans.com')) {
@@ -133,6 +208,9 @@ export const loadChatList = async () => {
         resolve(res || { success: false });
       });
     });
+    
+    // Wait for spending data before rendering
+    await spendingPromise;
     
     console.log('[ChatList] Response from content script:', response);
     
@@ -175,11 +253,16 @@ export const renderChatList = (chats) => {
     // Get auto-chat info for this chat
     const autoChatInfo = getAutoChatInfo(rawId);
     
+    // Get spending data for this subscriber
+    const spendData = spendingDataCache.get(rawId);
+    const tier = spendData?.tier || null;
+    
     // Build classes
     const itemClasses = ['chat-list-item'];
     if (hasUnread) itemClasses.push('unread');
     if (autoChatInfo) itemClasses.push('has-autochat');
     if (autoChatInfo?.status === 'ready') itemClasses.push('autochat-ready');
+    if (tier && tier.tier !== 'free') itemClasses.push(`tier-${tier.tier}`);
     
     // Build auto-chat preview HTML
     let autoChatPreviewHtml = '';
@@ -239,13 +322,27 @@ export const renderChatList = (chats) => {
       `;
     }
     
+    // Build spent badge HTML
+    let spentBadgeHtml = '';
+    if (spendData && spendData.amount > 0) {
+      spentBadgeHtml = `<span class="spent-badge tier-${tier.tier}" style="--tier-color: ${tier.color}; --tier-glow: ${tier.glow}">${escapeHtml(spendData.totalSpent)}</span>`;
+    }
+    
+    // Inline border style for tier color
+    const tierStyle = (tier && tier.tier !== 'free') 
+      ? `style="border-left: 3px solid ${tier.color}; background: linear-gradient(135deg, ${tier.glow}, transparent);"` 
+      : '';
+    
     return `
-      <div class="${itemClasses.join(' ')}" data-chat-id="${escapeHtml(chat.id)}" data-raw-id="${escapeHtml(rawId)}">
+      <div class="${itemClasses.join(' ')}" data-chat-id="${escapeHtml(chat.id)}" data-raw-id="${escapeHtml(rawId)}" ${tierStyle}>
         <div class="chat-list-avatar ${isOnline ? 'online' : ''}">👤</div>
         <div class="chat-list-content">
           <div class="chat-list-top">
             <span class="chat-list-name">${escapeHtml(subscriberName)}</span>
-            <span class="chat-list-time">${escapeHtml(timeText)}</span>
+            <div class="chat-list-top-right">
+              ${spentBadgeHtml}
+              <span class="chat-list-time">${escapeHtml(timeText)}</span>
+            </div>
           </div>
           ${handle ? `<div class="chat-list-handle">${escapeHtml(handle)}</div>` : ''}
           <div class="chat-list-preview">${escapeHtml(preview)}</div>

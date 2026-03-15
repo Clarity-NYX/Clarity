@@ -12,7 +12,7 @@ import { $, $$ } from './utils/dom.js';
 // Modules
 import { showMainApp, showAuthPanel, setupAuthListeners } from './modules/auth.js';
 import { loadProfiles, setupProfileListeners } from './modules/profiles.js';
-import { renderChatMessages, setupMessageListener, loadAndSyncChat, setupTabWatcher, setupChatListListeners } from './modules/chat.js';
+import { renderChatMessages, setupMessageListener, loadAndSyncChat, setupTabWatcher, setupChatListListeners, forceRefreshSubscriberStats } from './modules/chat.js';
 import { loadNotes, setupNotesListeners } from './modules/notes.js';
 import { loadScripts, renderScriptStages, renderScriptList, setupScriptsListeners } from './modules/scripts/index.js';
 import { setupAIListeners } from './modules/ai.js';
@@ -73,6 +73,12 @@ const setupEventListeners = () => {
   
   // Initialize profile menu and settings panel in chat tab
   initProfileMenu();
+  
+  // Refresh subscriber info button (Spent / Subscribed)
+  $('refreshSubInfoBtn')?.addEventListener('click', () => {
+    console.log('[Sidepanel] 🔄 Refresh subscriber stats clicked');
+    forceRefreshSubscriberStats();
+  });
 };
 
 // ============================================================
