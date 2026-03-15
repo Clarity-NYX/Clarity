@@ -4,10 +4,9 @@
 // Uses Firebase Storage REST API to avoid CSP issues with Firebase SDK
 // Images are uploaded via REST and URLs are saved to Firestore
 
-// Firebase Storage config for schedulo project
+// Firebase Storage config
 const STORAGE_CONFIG = {
-  bucket: 'schedulo-33bd7.firebasestorage.app',
-  apiKey: 'AIzaSyAff_0XL-ebsj3Em9Tw9NuWDcXeeC39QeY'
+  bucket: 'schedulo-33bd7.firebasestorage.app'
 };
 
 // Initialize (no-op for REST API approach)
