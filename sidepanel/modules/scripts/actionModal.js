@@ -418,6 +418,9 @@ export const addActionToSection = () => {
       action.tone = toneSelect?.value || undefined;
       
       if (selectedActionType === 'media') {
+        // Always save price for media actions (used for PPV on OnlyFans)
+        action.price = parseInt(priceInput?.value) || 0;
+        
         // Pool image takes priority over vault (user can choose either for OnlyFans)
         if (selectedPoolImage) {
           // Save pool image (works for both Telegram and OnlyFans)
@@ -425,21 +428,18 @@ export const addActionToSection = () => {
             id: selectedPoolImage.id,
             name: selectedPoolImage.name,
             downloadURL: selectedPoolImage.downloadURL || null,
-            imageData: selectedPoolImage.imageData || null, // Keep for backward compatibility
+            imageData: selectedPoolImage.imageData || null,
             storagePath: selectedPoolImage.storagePath || null
           };
           delete action.vaultItem; // Clear vault if pool image selected
-          if (isTelegram) delete action.price;
         } else if (!isTelegram && selectedVaultItem) {
           // Save vault item for OnlyFans (only if no pool image selected)
-          action.price = parseInt(priceInput?.value) || 0;
           action.vaultItem = selectedVaultItem;
           delete action.poolImage;
         } else {
           // No media selected
           delete action.poolImage;
           delete action.vaultItem;
-          if (isTelegram) delete action.price;
         }
       } else {
         delete action.price;
@@ -468,6 +468,9 @@ export const addActionToSection = () => {
     }
     
     if (selectedActionType === 'media') {
+      // Always save price for media actions (used for PPV on OnlyFans)
+      action.price = parseInt(priceInput?.value) || 0;
+      
       // Pool image takes priority over vault (user can choose either for OnlyFans)
       if (selectedPoolImage) {
         // Save pool image (works for both Telegram and OnlyFans)
@@ -475,12 +478,11 @@ export const addActionToSection = () => {
           id: selectedPoolImage.id,
           name: selectedPoolImage.name,
           downloadURL: selectedPoolImage.downloadURL || null,
-          imageData: selectedPoolImage.imageData || null, // Keep for backward compatibility
+          imageData: selectedPoolImage.imageData || null,
           storagePath: selectedPoolImage.storagePath || null
         };
       } else if (!isTelegram && selectedVaultItem) {
         // Save vault item for OnlyFans (only if no pool image selected)
-        action.price = parseInt(priceInput?.value) || 0;
         action.vaultItem = selectedVaultItem;
       }
     }
