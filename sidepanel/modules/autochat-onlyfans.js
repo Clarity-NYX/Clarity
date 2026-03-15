@@ -558,20 +558,49 @@ async function handleGenerationTrigger(peerId, subscriberName) {
     }
     
     // ===== IMPORTANT: Load the script for this subscriber =====
-    // Try to get their assigned script or use auto-selection
     const storedNotes = chatResponse.chat?.notes || {};
     const subscribedSince = storedNotes.subscribedSince;
     
-    // Auto-select script based on subscriber day (same logic as manual chat)
-    await scriptsModule.autoSelectScript(subscribedSince);
+    // CHECK 1: Manual script assignment takes priority
+    if (storedNotes.manualScriptMode && storedNotes.manualScriptId) {
+      const scripts = Store.get('scripts') || [];
+      const manualScript = scripts.find(s => s.id === storedNotes.manualScriptId);
+      if (manualScript) {
+        Store.set('currentScript', manualScript);
+        console.log(`[OF-AutoChat-UI] 📌 Using MANUAL script for ${subscriberName}: "${manualScript.name}"`);
+      } else {
+        console.log(`[OF-AutoChat-UI] ⚠️ Manual script ${storedNotes.manualScriptId} not found, falling back to auto`);
+        await scriptsModule.autoSelectScript(subscribedSince);
+      }
+    } else {
+      // CHECK 2: Auto-select script based on subscriber day
+      await scriptsModule.autoSelectScript(subscribedSince);
+    }
     
     const currentScript = Store.get('currentScript');
     console.log(`[OF-AutoChat-UI] Script loaded for ${subscriberName}: ${currentScript?.name || 'None'}`);
     
-    // ===== FIX: Initialize progress for this subscriber/script =====
-    // This ensures we know which steps are already completed
-    await Progress.init(true); // Force reload to get fresh progress
-    console.log(`[OF-AutoChat-UI] Progress initialized for ${subscriberName}`);
+    // ===== Initialize progress for this subscriber/script =====
+    // MUST happen after script is set, so ProgressManager loads the right data
+    await Progress.init(true); // Force reload to get fresh progress from Firebase + local
+    
+    const progressStats = Progress.getStats();
+    console.log(`[OF-AutoChat-UI] Progress for ${subscriberName}: ${progressStats.completed}/${progressStats.total} (${progressStats.percent}%)`);
+    
+    // If current script is 100% complete, try to find next incomplete script
+    if (progressStats.total > 0 && progressStats.completed >= progressStats.total) {
+      console.log(`[OF-AutoChat-UI] ⚠️ Script "${currentScript?.name}" is 100% complete for ${subscriberName}, trying next...`);
+      
+      // Try auto-select which should find next incomplete script
+      await scriptsModule.autoSelectScript(subscribedSince);
+      const newScript = Store.get('currentScript');
+      
+      if (newScript?.id !== currentScript?.id) {
+        await Progress.init(true); // Reload for new script
+        const newStats = Progress.getStats();
+        console.log(`[OF-AutoChat-UI] 🔄 Switched to "${newScript?.name}" (${newStats.completed}/${newStats.total})`);
+      }
+    }
     
     // Get current action info BEFORE generating (for progress tracking)
     const currentAction = await scriptsModule.getActionForGeneration();
