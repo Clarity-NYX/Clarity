@@ -48,9 +48,12 @@ export const sendMessage = (type, data = {}) => {
   return chrome.runtime.sendMessage({ type, data });
 };
 
+// Track if we're already refreshing to avoid loops
+let _isRefreshing = false;
+
 // Make direct HTTP request to API server with retry logic
 export const apiRequest = async (endpoint, options = {}) => {
-  const { maxRetries = RETRY_CONFIG.maxRetries, retryEnabled = true } = options;
+  const { maxRetries = RETRY_CONFIG.maxRetries, retryEnabled = true, _isRetryAfterRefresh = false } = options;
   
   // Get auth token from global FirebaseAuth (defined in firebase.js)
   let token = null;
@@ -80,6 +83,26 @@ export const apiRequest = async (endpoint, options = {}) => {
         headers,
         body: options.body
       });
+      
+      // Auto-refresh on 401 — try once to refresh token and retry
+      if (response.status === 401 && !_isRetryAfterRefresh && !_isRefreshing) {
+        try {
+          _isRefreshing = true;
+          console.log('[API] 🔄 Token expired, refreshing...');
+          if (typeof FirebaseAuth !== 'undefined') {
+            const refreshed = await FirebaseAuth.refreshToken();
+            _isRefreshing = false;
+            if (refreshed) {
+              console.log('[API] ✅ Token refreshed, retrying request');
+              return apiRequest(endpoint, { ...options, _isRetryAfterRefresh: true });
+            }
+          }
+          _isRefreshing = false;
+        } catch (refreshErr) {
+          _isRefreshing = false;
+          console.warn('[API] Token refresh failed:', refreshErr.message);
+        }
+      }
       
       // Check if we should retry based on status code
       if (!response.ok) {
