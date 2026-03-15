@@ -81,18 +81,19 @@ const renderSectionActions = (stage, stageIdx) => {
     const icon = ACTION_ICONS[type] || '💬';
     const toneIcon = tone ? TONE_ICONS[tone] : '';
     
-    // Price badge (OnlyFans media)
+    // Price badge (for any media action with a price)
     let priceBadge = '';
-    if (type === 'media' && !action.poolImage) {
+    if (type === 'media') {
       priceBadge = price > 0 
         ? `<span class="action-price-badge paid">$${price}</span>`
         : `<span class="action-price-badge free">FREE</span>`;
     }
     
-    // Pool Image badge (Telegram media)
+    // Pool Image badge (media with image from pool)
     let poolImageBadge = '';
     if (type === 'media' && action.poolImage) {
-      poolImageBadge = `<span class="action-pool-image-badge">${action.poolImage.name || 'Image'}</span>`;
+      const mediaIcon = action.poolImage.mediaType === 'video' ? '🎬' : '🖼️';
+      poolImageBadge = `<span class="action-pool-image-badge">${mediaIcon} ${action.poolImage.name || 'Image'}</span>`;
     }
     
     // Tone badge
