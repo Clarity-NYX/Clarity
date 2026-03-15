@@ -49,6 +49,7 @@ export {
 } from './messageListener.js';
 
 import { $ } from '../../utils/dom.js';
+import { forceRefreshSubscriberStats as _forceRefresh } from './chatSync.js';
 
 // Main setup function
 export const setupChat = () => {
@@ -58,5 +59,5 @@ export const setupChat = () => {
   setupMessageListener();
   
   // Refresh subscriber info button
-  $('refreshSubInfoBtn')?.addEventListener('click', () => forceRefreshSubscriberStats());
+  $('refreshSubInfoBtn')?.addEventListener('click', () => _forceRefresh());
 };
