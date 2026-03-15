@@ -42,7 +42,11 @@ export const OFAutoChatState = {
   
   // Profile context
   currentProfileId: null,
-  blockedUsers: []
+  blockedUsers: [],
+  
+  // Track chats we've already responded to (prevents re-generating for read messages)
+  // Cleared for a peerId only when a genuinely NEW message arrives
+  respondedChats: new Set()   // Set of peerIds we've sent responses to
 };
 
 // Alarm interval reference
@@ -182,12 +186,21 @@ async function scanAndUpdatePool() {
     const chats = result.chats;
     console.log(`[OF-AutoChat] Scanned ${chats.length} chats`);
     
-    // Filter: Only chats where THEIR message is last (needs reply)
+    // Filter: Only UNREAD chats where their message is last AND we haven't already responded
     const needsReply = chats.filter(chat => {
-      return chat.isTheirMessageLast && !isUserBlocked(chat.rawId);
+      const peerId = `of:${chat.rawId}`;
+      // Must have unread indicator in DOM (primary signal)
+      if (!chat.hasUnread) return false;
+      // Must be their message last (not ours)
+      if (!chat.isTheirMessageLast) return false;
+      // Must not be blocked
+      if (isUserBlocked(chat.rawId)) return false;
+      // Must not be a chat we already responded to (unless new message clears it)
+      if (OFAutoChatState.respondedChats.has(peerId)) return false;
+      return true;
     });
     
-    console.log(`[OF-AutoChat] ${needsReply.length} chats need reply`);
+    console.log(`[OF-AutoChat] ${needsReply.length} unread chats need reply`);
     
     // Take top N based on slider setting
     const topN = needsReply.slice(0, OFAutoChatState.maxActiveChats);
@@ -206,6 +219,8 @@ async function scanAndUpdatePool() {
           existing.waitingUntil = chat.lastMessageTimestamp + (OFAutoChatState.waitTimeMinutes * 60 * 1000);
           existing.status = 'waiting';
           existing.generatedResponse = null; // Clear old response
+          // New message = clear responded flag
+          OFAutoChatState.respondedChats.delete(peerId);
           console.log(`[OF-AutoChat] New message from ${chat.subscriberName}, resetting timer`);
         }
       } else {
@@ -308,12 +323,17 @@ export function handleChatListPush(chats) {
   
   console.log(`[OF-AutoChat] 📥 Push update received: ${chats.length} chats`);
   
-  // Filter: Only chats where THEIR message is last (needs reply)
+  // Filter: Only UNREAD chats where their message is last AND we haven't already responded
   const needsReply = chats.filter(chat => {
-    return chat.isTheirMessageLast && !isUserBlocked(chat.rawId);
+    const peerId = `of:${chat.rawId}`;
+    if (!chat.hasUnread) return false;
+    if (!chat.isTheirMessageLast) return false;
+    if (isUserBlocked(chat.rawId)) return false;
+    if (OFAutoChatState.respondedChats.has(peerId)) return false;
+    return true;
   });
   
-  console.log(`[OF-AutoChat] ${needsReply.length} chats need reply`);
+  console.log(`[OF-AutoChat] ${needsReply.length} unread chats need reply`);
   
   // Take top N based on slider setting
   const topN = needsReply.slice(0, OFAutoChatState.maxActiveChats);
@@ -352,6 +372,9 @@ export function handleChatListPush(chats) {
           existing.generatedResponse = null; // Clear old response - need to regenerate
         }
         existing.status = 'waiting';
+        
+        // New message = clear responded flag so we can re-generate
+        OFAutoChatState.respondedChats.delete(peerId);
         
         // Invalidate message cache (Feature 3)
         OFAutoChatState.messageCache.delete(peerId);
@@ -783,6 +806,9 @@ export async function sendMessage(peerId) {
         // Clear message buffer after successful send
         chat.messageBuffer = [];
         chat.messageCount = 0;
+        
+        // Track this chat as responded — prevents re-generating until a new message arrives
+        OFAutoChatState.respondedChats.add(peerId);
         
         console.log(`[OF-AutoChat] ✅ Message sent to ${chat.subscriberName}!`);
         
