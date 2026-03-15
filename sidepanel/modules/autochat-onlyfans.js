@@ -13,6 +13,7 @@ import Store from '../state/store.js';
 
 let ofAutoChatState = {
   enabled: false,
+  autoSendEnabled: false,  // false = queue-only (pre-generate, user sends manually)
   maxActiveChats: 5,
   waitTimeMinutes: 1,
   activePool: [],    // Array of chat states with responses
@@ -92,6 +93,12 @@ export function renderOFAutoChatPanel() {
       </div>
       
       <div class="autochat-of-controls">
+        <div class="control-row">
+          <label>Mode</label>
+          <button id="ofAutoSendToggle" class="mode-toggle-btn ${ofAutoChatState.autoSendEnabled ? 'auto-send' : 'queue-only'}">
+            ${ofAutoChatState.autoSendEnabled ? '📤 Auto-Send' : '📋 Queue Only'}
+          </button>
+        </div>
         <div class="control-row">
           <label>Max Active Chats</label>
           <input type="range" id="ofMaxChatsSlider" min="1" max="10" value="${maxActiveChats}">
@@ -316,6 +323,20 @@ function setupOFAutoChatListeners() {
       data: { minutes }
     });
     ofAutoChatState.waitTimeMinutes = minutes;
+  });
+  
+  // Auto-send toggle
+  $('ofAutoSendToggle')?.addEventListener('click', async () => {
+    const newValue = !ofAutoChatState.autoSendEnabled;
+    const response = await chrome.runtime.sendMessage({
+      type: 'OF_AUTOCHAT_SET_AUTO_SEND',
+      data: { autoSend: newValue }
+    });
+    if (response.success) {
+      ofAutoChatState.autoSendEnabled = response.autoSendEnabled;
+      renderOFAutoChatPanel();
+      showNotification(newValue ? '📤 Auto-Send enabled' : '📋 Queue-Only mode (pre-generate, send manually)');
+    }
   });
 }
 
@@ -609,6 +630,28 @@ async function handleGenerationTrigger(peerId, subscriberName) {
 }
 
 // ============================================================
+// PRE-GENERATED RESPONSE ACCESS
+// Called by chat module when user opens a subscriber chat
+// ============================================================
+
+export async function getPregenerated(peerId) {
+  if (!peerId) return null;
+  try {
+    const result = await chrome.runtime.sendMessage({
+      type: 'OF_AUTOCHAT_GET_PREGENERATED',
+      data: { peerId }
+    });
+    if (result?.success && result.response) {
+      console.log(`[OF-AutoChat-UI] 📦 Pre-generated response found for ${peerId}`);
+      return result.response;
+    }
+  } catch (e) {
+    // Non-critical
+  }
+  return null;
+}
+
+// ============================================================
 // INITIALIZATION
 // ============================================================
 
@@ -627,5 +670,6 @@ export default {
   renderOFAutoChatCards,
   loadOFAutoChatState,
   setupOFAutoChatMessageListener,
-  initOFAutoChat
+  initOFAutoChat,
+  getPregenerated
 };

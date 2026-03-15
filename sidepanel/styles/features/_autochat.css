@@ -1493,3 +1493,40 @@ body.onlyfans-platform #autoChatStatusBar.hidden {
 .settings-panel-body::-webkit-scrollbar-thumb:hover {
   background: #8b5cf6;
 }
+
+/* ============================================================
+   MODE TOGGLE BUTTON (Queue Only / Auto-Send)
+   ============================================================ */
+
+.mode-toggle-btn {
+  padding: 6px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.mode-toggle-btn.queue-only {
+  background: rgba(139, 92, 246, 0.3);
+  color: #c4b5fd;
+  border-color: rgba(139, 92, 246, 0.5);
+}
+
+.mode-toggle-btn.queue-only:hover {
+  background: rgba(139, 92, 246, 0.5);
+  color: #fff;
+}
+
+.mode-toggle-btn.auto-send {
+  background: rgba(16, 185, 129, 0.3);
+  color: #6ee7b7;
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.mode-toggle-btn.auto-send:hover {
+  background: rgba(16, 185, 129, 0.5);
+  color: #fff;
+}

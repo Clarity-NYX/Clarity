@@ -11,6 +11,7 @@ import { API } from './api.js';
 
 export const OFAutoChatState = {
   enabled: false,
+  autoSendEnabled: false,    // false = queue-only (pre-generate but don't auto-send)
   maxActiveChats: 5,
   waitTimeMinutes: 1,        // Wait 1 minute after their last message
   pollIntervalMs: 1000,      // Poll chat list every 1 second for fast detection
@@ -233,18 +234,52 @@ async function scanAndUpdatePool() {
   }
 }
 
-// Process timers - trigger generation when wait time expires
+// Process timers - trigger pre-generation early + handle timer expiry
 function processTimers() {
   const now = Date.now();
   
   for (const [peerId, chat] of OFAutoChatState.activePool) {
-    // Skip if not in waiting status
+    // Skip non-waiting chats
     if (chat.status !== 'waiting') continue;
+    if (!chat.waitingUntil) continue;
     
-    // Check if wait time has passed
-    if (chat.waitingUntil && now >= chat.waitingUntil) {
-      console.log(`[OF-AutoChat] Timer expired for ${chat.subscriberName}, triggering generation`);
-      triggerGeneration(peerId);
+    const totalWaitMs = OFAutoChatState.waitTimeMinutes * 60 * 1000;
+    const elapsed = now - (chat.waitingUntil - totalWaitMs);
+    const halfWay = totalWaitMs * 0.5;
+    
+    // === EARLY PRE-GENERATION: Start at 50% of wait time ===
+    // Generate in background so response is ready when timer expires
+    if (elapsed >= halfWay && !chat.generatedResponse && chat.status === 'waiting') {
+      startEarlyGeneration(peerId);
+    }
+    
+    // === TIMER EXPIRED: Response should be ready now ===
+    if (now >= chat.waitingUntil) {
+      if (chat.generatedResponse) {
+        // Response already pre-generated — mark as ready
+        chat.status = 'ready';
+        console.log(`[OF-AutoChat] ✅ Timer expired + response ready for ${chat.subscriberName}`);
+        
+        // Auto-send only if autoSendEnabled
+        if (OFAutoChatState.autoSendEnabled) {
+          console.log(`[OF-AutoChat] 📤 Auto-sending to ${chat.subscriberName}...`);
+          sendMessage(peerId);
+        }
+      } else if (chat.status === 'waiting') {
+        // Timer expired but no response yet — generate now
+        console.log(`[OF-AutoChat] Timer expired for ${chat.subscriberName}, generating now`);
+        triggerGeneration(peerId);
+      }
+    }
+  }
+  
+  // Also: transition pre-generated chats to 'ready' when their timer expires
+  for (const [peerId, chat] of OFAutoChatState.activePool) {
+    if (chat.status === 'ready' && chat.generatedResponse && OFAutoChatState.autoSendEnabled) {
+      // Auto-send if autoSend is on and not already sending
+      if (chat.status === 'ready') {
+        // Already handled above, but double-check
+      }
     }
   }
   
@@ -885,6 +920,7 @@ function notifyStateChange() {
     type: 'OF_AUTOCHAT_STATE_CHANGED',
     data: {
       enabled: OFAutoChatState.enabled,
+      autoSendEnabled: OFAutoChatState.autoSendEnabled,
       maxActiveChats: OFAutoChatState.maxActiveChats,
       activePool: poolArray,
       stats: OFAutoChatState.stats,
@@ -1037,12 +1073,29 @@ export function handleOFAutoChatMessage(type, data) {
         success: true, 
         state: {
           enabled: OFAutoChatState.enabled,
+          autoSendEnabled: OFAutoChatState.autoSendEnabled,
           maxActiveChats: OFAutoChatState.maxActiveChats,
           waitTimeMinutes: OFAutoChatState.waitTimeMinutes,
           activePool: poolArray,
           stats: OFAutoChatState.stats
         }
       };
+    
+    case 'OF_AUTOCHAT_SET_AUTO_SEND':
+      OFAutoChatState.autoSendEnabled = !!data.autoSend;
+      console.log(`[OF-AutoChat] Auto-send ${OFAutoChatState.autoSendEnabled ? 'ENABLED 📤' : 'DISABLED (queue-only) 📋'}`);
+      notifyStateChange();
+      return { success: true, autoSendEnabled: OFAutoChatState.autoSendEnabled };
+    
+    case 'OF_AUTOCHAT_GET_PREGENERATED': {
+      // Get pre-generated response for a specific subscriber
+      const peerId = data.peerId;
+      const chatEntry = OFAutoChatState.activePool.get(peerId);
+      if (chatEntry && chatEntry.generatedResponse) {
+        return { success: true, response: chatEntry.generatedResponse, status: chatEntry.status };
+      }
+      return { success: false, error: 'No pre-generated response' };
+    }
       
     case 'OF_AUTOCHAT_GENERATION_RESULT':
       handleGenerationResult(data.peerId, data.success, data.response, data.error);
