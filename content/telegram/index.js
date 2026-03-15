@@ -697,13 +697,21 @@
         return { success: false, error: 'Failed to create blob from image data' };
       }
       
-      // Determine content type
+      // Determine content type and file extension (supports images AND videos)
       const contentType = blob.type || 'image/jpeg';
-      const extension = contentType.includes('png') ? 'png' : contentType.includes('gif') ? 'gif' : 'jpg';
+      const isVideo = contentType.startsWith('video/');
+      let extension = 'jpg';
+      if (contentType.includes('png')) extension = 'png';
+      else if (contentType.includes('gif')) extension = 'gif';
+      else if (contentType.includes('webp')) extension = 'webp';
+      else if (contentType.includes('mp4')) extension = 'mp4';
+      else if (contentType.includes('webm')) extension = 'webm';
+      else if (contentType.includes('quicktime') || contentType.includes('mov')) extension = 'mov';
       
-      // Create file from blob
-      const file = new File([blob], `image.${extension}`, { type: contentType });
-      console.log('[Clarity-TG] File created:', file.name, 'size:', file.size, 'type:', file.type);
+      // Create file from blob with appropriate name
+      const filePrefix = isVideo ? 'video' : 'image';
+      const file = new File([blob], `${filePrefix}.${extension}`, { type: contentType });
+      console.log(`[Clarity-TG] ${isVideo ? '🎬 Video' : '📸 Image'} file created:`, file.name, 'size:', file.size, 'type:', file.type);
       
       // Method 1: Try using file input (attachment button) with caption
       console.log('[Clarity-TG] 🔄 Trying method 1: File input...');

@@ -396,6 +396,7 @@ function showEditModal(image) {
           <div class="modal-body">
             <div class="edit-image-preview">
               <img id="editImagePreview" src="" alt="Preview">
+              <video id="editVideoPreview" controls muted style="display:none; max-width:100%; max-height:200px; border-radius:8px;"></video>
             </div>
             <div class="form-group">
               <label>Name</label>
@@ -442,8 +443,24 @@ function showEditModal(image) {
     modal.querySelector('.modal-backdrop').addEventListener('click', hideEditModal);
   }
   
-  // Populate the form with image data
-  document.getElementById('editImagePreview').src = image.imageData || image.downloadURL || '';
+  // Populate the form — toggle between image/video preview
+  const editImgEl = document.getElementById('editImagePreview');
+  const editVidEl = document.getElementById('editVideoPreview');
+  const mediaSrc = image.imageData || image.downloadURL || '';
+  
+  if (image.mediaType === 'video') {
+    if (editImgEl) editImgEl.style.display = 'none';
+    if (editVidEl) { editVidEl.src = mediaSrc; editVidEl.style.display = 'block'; }
+    // Update modal title
+    const titleEl = modal.querySelector('.modal-header h3');
+    if (titleEl) titleEl.textContent = '✏️ Edit Video';
+  } else {
+    if (editImgEl) { editImgEl.src = mediaSrc; editImgEl.style.display = 'block'; }
+    if (editVidEl) { editVidEl.src = ''; editVidEl.style.display = 'none'; }
+    const titleEl = modal.querySelector('.modal-header h3');
+    if (titleEl) titleEl.textContent = '✏️ Edit Image';
+  }
+  
   document.getElementById('editImageName').value = image.name || '';
   document.getElementById('editImageDescription').value = image.description || '';
   document.getElementById('editImageCategory').value = image.category || 'other';

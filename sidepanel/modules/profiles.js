@@ -44,6 +44,7 @@ const el = {
   get profileBodyTypeSelect() { return $('profileBodyTypeSelect'); },
   get profileHairSelect() { return $('profileHairSelect'); },
   get profileEyesSelect() { return $('profileEyesSelect'); },
+  get profileRelationshipSelect() { return $('profileRelationshipSelect'); },
   get profilePersonalityInput() { return $('profilePersonalityInput'); },
   get profileStyleRulesInput() { return $('profileStyleRulesInput'); },
   get profileWakeUpTime() { return $('profileWakeUpTime'); },
@@ -383,6 +384,7 @@ export const openProfileModal = (profile = null) => {
   if (el.profileBodyTypeSelect) el.profileBodyTypeSelect.value = profile?.bodyType || '';
   if (el.profileHairSelect) el.profileHairSelect.value = profile?.appearance?.hair || '';
   if (el.profileEyesSelect) el.profileEyesSelect.value = profile?.appearance?.eyes || '';
+  if (el.profileRelationshipSelect) el.profileRelationshipSelect.value = profile?.relationshipStatus || '';
   
   // Personality
   if (el.profileToneSelect) el.profileToneSelect.value = profile?.defaultTone || 'sweet';
@@ -439,6 +441,7 @@ const buildPersonaString = (profileData) => {
   if (profileData.appearance?.eyes) appearance.push(`${profileData.appearance.eyes} eyes`);
   if (appearance.length) parts.push(`Appearance: ${appearance.join(', ')}`);
   
+  if (profileData.relationshipStatus) parts.push(`Relationship: ${profileData.relationshipStatus}`);
   if (profileData.personality) parts.push(`Personality: ${profileData.personality}`);
   if (profileData.styleRules) parts.push(`Style: ${profileData.styleRules}`);
   if (profileData.kinks?.length) parts.push(`Interests: ${profileData.kinks.join(', ')}`);
@@ -473,6 +476,7 @@ export const saveProfile = async () => {
     timezone: el.profileTimezoneSelect?.value || '',
     // Appearance
     bodyType: el.profileBodyTypeSelect?.value || '',
+    relationshipStatus: el.profileRelationshipSelect?.value || '',
     appearance: {
       hair: el.profileHairSelect?.value || '',
       eyes: el.profileEyesSelect?.value || ''

@@ -39,6 +39,11 @@ let lastContext = {
 let saveRetryQueue = [];
 let isProcessingRetry = false;
 
+// Remote sync polling
+let syncInterval = null;
+const SYNC_INTERVAL_MS = 15000; // Poll Firebase every 15 seconds
+let _onRemoteUpdate = null; // Callback when remote has new progress (triggers re-render)
+
 // ============================================================
 // LOGGING
 // ============================================================
@@ -375,6 +380,9 @@ export const init = async (forceReload = false) => {
   if (localCount !== firebaseCount || localCount !== finalCompleted.length) {
     await saveToFirebase();
   }
+  
+  // Start remote sync polling (auto-pauses when panel is hidden)
+  startSync();
 };
 
 // Check if an action is completed
@@ -661,6 +669,90 @@ export const markScriptFinished = async () => {
 };
 
 // ============================================================
+// REMOTE SYNC (Multi-user real-time progress sharing)
+// Polls Firebase periodically and merges if the other user
+// has made progress we don't have yet.
+// ============================================================
+
+// Set callback for when remote progress is detected (triggers UI re-render)
+export const setOnRemoteUpdate = (callback) => {
+  _onRemoteUpdate = callback;
+};
+
+// Fetch from Firebase and merge — returns true if new progress was found
+const syncFromRemote = async () => {
+  if (!currentProgress.isLoaded || !currentProgress.profileId) return false;
+  
+  const { profileId, subscriberId, scriptId } = currentProgress;
+  if (!profileId || !subscriberId || !scriptId) return false;
+  
+  try {
+    const remoteData = await loadFromFirebase(profileId, subscriberId, scriptId);
+    if (!remoteData?.completed) return false;
+    
+    const localSet = new Set(currentProgress.completed);
+    const remoteSet = new Set(remoteData.completed);
+    
+    // Find actions that exist in remote but not local
+    const newFromRemote = remoteData.completed.filter(key => !localSet.has(key));
+    
+    if (newFromRemote.length === 0) return false; // No new progress
+    
+    // MERGE: union of both (never lose progress)
+    const merged = [...new Set([...currentProgress.completed, ...remoteData.completed])];
+    
+    log('═══════════════════════════════════════════');
+    log('🔄 REMOTE SYNC: Found', newFromRemote.length, 'new action(s) from another user');
+    log('   New:', newFromRemote.join(', '));
+    log('   Local:', currentProgress.completed.length, '→ Merged:', merged.length);
+    log('═══════════════════════════════════════════');
+    
+    // Update in-memory state
+    currentProgress.completed = merged;
+    currentProgress.version = Math.max(currentProgress.version, remoteData.version || 0) + 1;
+    currentProgress.lastUpdated = Date.now();
+    
+    // Save merged state to local storage (so it persists)
+    await saveToLocal();
+    
+    // Notify UI to re-render
+    if (_onRemoteUpdate) {
+      log('🔔 Triggering UI re-render from remote sync');
+      _onRemoteUpdate();
+    }
+    
+    return true;
+  } catch (error) {
+    // Don't spam errors — sync failures are non-critical
+    if (!syncFromRemote._lastErrorLog || Date.now() - syncFromRemote._lastErrorLog > 60000) {
+      logError('Remote sync error:', error.message);
+      syncFromRemote._lastErrorLog = Date.now();
+    }
+    return false;
+  }
+};
+
+// Start periodic remote sync polling
+export const startSync = () => {
+  if (syncInterval) return; // Already running
+  
+  log('🔄 Starting remote sync (every', SYNC_INTERVAL_MS / 1000, 'seconds)');
+  syncInterval = setInterval(syncFromRemote, SYNC_INTERVAL_MS);
+  
+  // Also do an immediate sync
+  syncFromRemote();
+};
+
+// Stop periodic remote sync polling
+export const stopSync = () => {
+  if (syncInterval) {
+    clearInterval(syncInterval);
+    syncInterval = null;
+    log('⏹️ Stopped remote sync');
+  }
+};
+
+// ============================================================
 // UTILITY FUNCTIONS
 // ============================================================
 
@@ -707,9 +799,13 @@ if (typeof document !== 'undefined') {
       if (hasContextChanged()) {
         init(true); // Force reload
       }
+      // Resume remote sync polling when panel is visible
+      startSync();
     } else if (document.visibilityState === 'hidden') {
-      log('👁️ Panel hidden - flushing...');
+      log('👁️ Panel hidden - flushing & stopping sync...');
       flush();
+      // Pause remote sync to save bandwidth when panel is hidden
+      stopSync();
     }
   });
   
@@ -767,5 +863,9 @@ export default {
   isSubscriberBlocked,
   addToBlockList,
   removeFromBlockList,
-  markScriptFinished
+  markScriptFinished,
+  // Multi-user sync
+  setOnRemoteUpdate,
+  startSync,
+  stopSync
 };

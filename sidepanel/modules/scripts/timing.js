@@ -3,7 +3,55 @@
 // ============================================================
 
 import { $ } from '../../utils/dom.js';
+import Store from '../../state/store.js';
 import { DAY_TO_NUMBER } from './constants.js';
+
+// ============================================================
+// TIMEZONE-AWARE DATE HELPER
+// Returns a Date-like object with hours/day/etc in the profile's timezone.
+// Falls back to browser local time if no timezone is set.
+// ============================================================
+const getProfileNow = () => {
+  const profile = Store.get('currentProfile');
+  const tz = profile?.timezone; // e.g. "America/New_York", "Europe/Warsaw"
+  
+  const now = new Date();
+  
+  if (!tz) return now; // No timezone set → use browser local time
+  
+  try {
+    // Use Intl to get the correct hour/minute/day in the profile's timezone
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour: 'numeric',
+      minute: 'numeric',
+      weekday: 'short',
+      hour12: false
+    });
+    
+    const parts = {};
+    formatter.formatToParts(now).forEach(p => {
+      parts[p.type] = p.value;
+    });
+    
+    // Map weekday abbreviation → JS getDay() number (0=Sun, 1=Mon, ...)
+    const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    
+    return {
+      getDay: () => weekdayMap[parts.weekday] ?? now.getDay(),
+      getHours: () => parseInt(parts.hour) || 0,
+      getMinutes: () => parseInt(parts.minute) || 0,
+      // Pass through for anything else
+      getTime: () => now.getTime()
+    };
+  } catch (e) {
+    console.warn('[Timing] Invalid timezone:', tz, e);
+    return now; // Fallback to browser time
+  }
+};
+
+// Export for use by other modules (ai.js, autochat, etc.)
+export { getProfileNow };
 
 // Get script order for sorting
 // Sort by: subscriberDay (primary), then order (secondary)
@@ -45,14 +93,15 @@ export const getScriptOrder = (script) => {
   return (subscriberDay * 1000) + order;
 };
 
-// Check if a script is active for today
+// Check if a script is active for today (uses profile timezone)
 export const isScriptActiveToday = (script) => {
   const settings = script.timingSettings || {};
   const scheduleType = settings.scheduleType || 'anytime';
   
   if (scheduleType === 'anytime') return true;
   
-  const today = new Date().getDay();
+  // Use profile timezone instead of browser local time
+  const today = getProfileNow().getDay();
   
   if (scheduleType === 'specific-day') {
     const scheduledDay = settings.scheduledDay;

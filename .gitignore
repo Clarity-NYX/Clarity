@@ -37,6 +37,9 @@ debug/
 # Test coverage
 coverage/
 
+# Server (private - NEVER push to GitHub)
+server/
+
 # Temporary files
 *.tmp
 *.temp

@@ -8,6 +8,7 @@ import { showNotification, showError, hideError, showLoading } from '../utils/no
 import API, { detectPlatform } from '../utils/api.js';
 import { checkGoalCompletion, renderScriptStages, getCurrentIncompleteAction, isActionCompleted, getSubscriberScriptStats, autoSkipSatisfiedGoals, getActionForGeneration } from './scripts/index.js';
 import { markActionCompleted } from './scripts/goalDetection.js';
+import { getProfileNow } from './scripts/timing.js';
 import { checkSituationalTriggerWithAI } from './settings.js';
 import { getImageById } from './imagePool.js';
 import { updateCreditsFromResponse } from './credits.js';
@@ -516,16 +517,22 @@ const checkTimingRules = () => {
   }
   
   const settings = currentScript.timingSettings;
-  const now = new Date();
   
-  // Check "scheduled" mode - not before specific time
+  // Use timezone-aware time from timing module (imported at top)
+  // Uses profile's timezone setting instead of browser local time
+  const profileNow = getProfileNow();
+  const nowHour = profileNow.getHours();
+  const nowMin = profileNow.getMinutes();
+  const nowTotalMin = nowHour * 60 + nowMin;
+
+  // Check "scheduled" mode - not before specific time (timezone-aware)
   if (settings.mode === 'scheduled' && settings.notBeforeTime) {
     const [hours, minutes] = settings.notBeforeTime.split(':').map(Number);
-    const notBeforeToday = new Date();
-    notBeforeToday.setHours(hours, minutes, 0, 0);
-    
-    if (now < notBeforeToday) {
-      return notBeforeToday.getTime() - now.getTime();
+    const notBeforeTotalMin = hours * 60 + minutes;
+
+    if (nowTotalMin < notBeforeTotalMin) {
+      // Return remaining ms until notBefore time
+      return (notBeforeTotalMin - nowTotalMin) * 60 * 1000;
     }
   }
   
@@ -731,34 +738,53 @@ const getNotesContext = () => {
   return parts.join(', ');
 };
 
-// Get profile context (YOUR persona info - name, age, location, language, etc.)
+// Get profile context (YOUR persona info - ALL settings sent to AI)
 const getProfileContext = () => {
   const profile = Store.get('currentProfile');
   if (!profile) return null;
   
-  // Build a profile info object with available data
+  // Build a complete profile info object with ALL available data
   const profileInfo = {};
+  
+  // Identity
   if (profile.name) profileInfo.name = profile.name;
   if (profile.modelName) profileInfo.modelName = profile.modelName;
   if (profile.age) profileInfo.age = profile.age;
-  if (profile.location) profileInfo.location = profile.location;
-  if (profile.city) profileInfo.city = profile.city;
+  
+  // Location
   if (profile.country) profileInfo.country = profile.country;
+  if (profile.city) profileInfo.city = profile.city;
   if (profile.matchSubscriberLocation) profileInfo.matchSubscriberLocation = profile.matchSubscriberLocation;
+  if (profile.timezone) profileInfo.timezone = profile.timezone;
+  
+  // Appearance
+  if (profile.bodyType) profileInfo.bodyType = profile.bodyType;
+  if (profile.appearance?.hair) profileInfo.hairColor = profile.appearance.hair;
+  if (profile.appearance?.eyes) profileInfo.eyeColor = profile.appearance.eyes;
+  if (profile.relationshipStatus) profileInfo.relationshipStatus = profile.relationshipStatus;
+  
+  // Personality & Style
   if (profile.personality) profileInfo.personality = profile.personality;
   if (profile.defaultTone) profileInfo.tone = profile.defaultTone;
   if (profile.styleRules) profileInfo.style = profile.styleRules;
   
+  // Kinks & Boundaries — critical for AI to know what's allowed
+  if (profile.kinks?.length) profileInfo.kinks = profile.kinks;
+  if (profile.boundaries?.length) profileInfo.boundaries = profile.boundaries;
+  
+  // Schedule — helps AI answer "when are you free?" naturally
+  if (profile.schedule?.wakeUpTime) profileInfo.wakeUpTime = profile.schedule.wakeUpTime;
+  if (profile.schedule?.sleepTime) profileInfo.sleepTime = profile.schedule.sleepTime;
+  
   // CRITICAL: Include language setting for forced language response
   if (profile.language) {
     profileInfo.language = profile.language;
-    console.log('[AI] Profile language set to:', profile.language);
   }
   
   // Check if there's any actual data
   if (Object.keys(profileInfo).length === 0) return null;
   
-  console.log('[AI] getProfileContext:', profileInfo);
+  console.log('[AI] getProfileContext:', Object.keys(profileInfo).join(', '));
   return profileInfo;
 };
 

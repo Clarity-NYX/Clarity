@@ -959,7 +959,9 @@
         // Convert base64 to Blob
         log('📸 Converting base64 to blob...');
         const base64Data = imageSource.split(',')[1] || imageSource;
-        mimeType = imageSource.includes('image/png') ? 'image/png' : 'image/jpeg';
+        // Detect MIME type from data URL header (supports images AND videos)
+        const mimeMatch = imageSource.match(/^data:([^;,]+)/);
+        mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
         
         const byteCharacters = atob(base64Data);
         const byteNumbers = new Array(byteCharacters.length);
@@ -971,7 +973,17 @@
         log('📸 Blob created, size:', blob.size);
       }
       
-      const fileName = `image_${Date.now()}.${mimeType === 'image/png' ? 'png' : 'jpg'}`;
+      // Determine file extension from MIME type (supports images AND videos)
+      const isVideo = mimeType.startsWith('video/');
+      let ext = 'jpg';
+      if (mimeType.includes('png')) ext = 'png';
+      else if (mimeType.includes('gif')) ext = 'gif';
+      else if (mimeType.includes('webp')) ext = 'webp';
+      else if (mimeType.includes('mp4')) ext = 'mp4';
+      else if (mimeType.includes('webm')) ext = 'webm';
+      else if (mimeType.includes('quicktime') || mimeType.includes('mov')) ext = 'mov';
+      const filePrefix = isVideo ? 'video' : 'image';
+      const fileName = `${filePrefix}_${Date.now()}.${ext}`;
       const file = new File([blob], fileName, { type: mimeType });
       
       log('📸 Created file:', fileName, 'size:', file.size);

@@ -79,14 +79,32 @@ const setupEventListeners = () => {
 // INITIALIZATION
 // ============================================================
 
+// Track if app is fully initialized (prevents double-init from storage listener)
+let appInitialized = false;
+
 const init = async () => {
   try {
     // Initialize platform selector listeners first
     await initPlatform();
     
-    const user = await FirebaseAuth.checkAuthState();
+    let user = await FirebaseAuth.checkAuthState();
+    
+    // RETRY: If auth not ready yet, wait briefly and check again
+    // This handles the race condition where sidepanel opens before storage is populated
+    if (!user) {
+      console.log('[Sidepanel] Auth not ready, retrying in 500ms...');
+      await new Promise(r => setTimeout(r, 500));
+      user = await FirebaseAuth.checkAuthState();
+    }
+    if (!user) {
+      console.log('[Sidepanel] Auth still not ready, retrying in 1500ms...');
+      await new Promise(r => setTimeout(r, 1500));
+      user = await FirebaseAuth.checkAuthState();
+    }
     
     if (user) {
+      appInitialized = true;
+      
       // Check if platform is selected AND tab is open
       const hasPlatform = await checkPlatformSelection();
       
@@ -248,8 +266,36 @@ const setupTabDisconnectListener = () => {
   });
 };
 
+// ============================================================
+// AUTH STATE CHANGE LISTENER
+// Watches chrome.storage for auth changes — handles the race condition
+// where sidepanel opens before login completes. When firebaseUser
+// appears in storage, we re-initialize the entire app.
+// ============================================================
+
+const setupAuthStateListener = () => {
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local') return;
+    
+    // User just logged in — firebaseUser was set
+    if (changes.firebaseUser?.newValue && !appInitialized) {
+      console.log('[Sidepanel] 🔑 Auth state changed — user logged in, reinitializing...');
+      init();
+    }
+    
+    // User just logged out — firebaseUser was removed
+    if (changes.firebaseUser && !changes.firebaseUser.newValue && appInitialized) {
+      console.log('[Sidepanel] 🔒 Auth state changed — user logged out');
+      appInitialized = false;
+      showAuthPanel();
+      setupAuthListeners();
+    }
+  });
+};
+
 document.addEventListener('DOMContentLoaded', () => {
   init();
   setupTabDisconnectListener();
+  setupAuthStateListener();
   // Note: setupTabWatcher is now called inside init() ONLY if platform is already selected
 });

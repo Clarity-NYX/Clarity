@@ -234,5 +234,13 @@ export const resetDisplayedSection = () => {
 export const initAndRender = async () => {
   await Progress.init();
   displayedSectionIndex = Progress.getCurrentSectionIndex();
+  
+  // Register remote sync callback — when another user makes progress,
+  // re-render the UI automatically so both users see the same state
+  Progress.setOnRemoteUpdate(() => {
+    console.log('[Renderer] 🔄 Remote progress update — re-rendering');
+    renderScriptStages();
+  });
+  
   renderScriptStages();
 };
