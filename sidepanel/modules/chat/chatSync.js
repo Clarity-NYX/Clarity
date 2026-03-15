@@ -303,7 +303,7 @@ const requestChatFromPageDirect = async () => {
   });
 };
 
-// Force refresh subscriber stats (manual button click - bypasses cache)
+// Force refresh subscriber stats (manual button click - opens profile tab to scrape)
 export const forceRefreshSubscriberStats = async () => {
   const currentSubscriberId = Store.get('currentSubscriberId');
   if (!currentSubscriberId) {
@@ -311,11 +311,10 @@ export const forceRefreshSubscriberStats = async () => {
     return;
   }
   
-  // Clear the cache flag so fetchSubscriberStats actually fetches
-  const storedChat = Store.get('storedChat') || {};
-  if (storedChat.notes) {
-    delete storedChat.notes.statsFetchAttempted;
-    Store.set('storedChat', storedChat);
+  const currentPlatform = Store.get('currentPlatform');
+  if (currentPlatform === 'telegram') {
+    showNotification('Stats not available for Telegram');
+    return;
   }
   
   // Add spinning animation to button
@@ -323,8 +322,47 @@ export const forceRefreshSubscriberStats = async () => {
   btn?.classList.add('spinning');
   
   try {
-    await fetchSubscriberStats();
-    showNotification('Subscriber info refreshed!');
+    console.log('[Chat] Force refreshing subscriber stats...');
+    
+    // Call the API directly (bypasses all cache guards)
+    const response = await API.fetchSubscriberStats(currentSubscriberId);
+    
+    const existingNotes = Store.get('storedChat')?.notes || {};
+    const updatedNotes = {
+      ...existingNotes,
+      statsFetchAttempted: true,
+      statsFetchedAt: new Date().toISOString()
+    };
+    
+    if (response.success && response.stats) {
+      if (response.stats.subscribedSince) {
+        updatedNotes.subscribedSince = response.stats.subscribedSince;
+      }
+      if (response.stats.totalSpent) {
+        updatedNotes.totalSpent = response.stats.totalSpent;
+      }
+      showNotification('Subscriber info refreshed!');
+    } else {
+      showNotification('Could not scrape stats from profile page');
+    }
+    
+    // Update UI
+    displaySubscriberStats(updatedNotes);
+    
+    // Save updated notes
+    const currentProfile = Store.get('currentProfile');
+    if (currentProfile && currentSubscriberId) {
+      await API.saveChatNotes({
+        profileId: currentProfile.id,
+        subscriberId: currentSubscriberId,
+        notes: updatedNotes
+      });
+      
+      const storedChat = Store.get('storedChat') || {};
+      storedChat.notes = updatedNotes;
+      Store.set('storedChat', storedChat);
+      Store.set('currentNotes', updatedNotes);
+    }
   } catch (e) {
     console.error('[Chat] Force refresh error:', e);
     showNotification('Failed to refresh stats');
