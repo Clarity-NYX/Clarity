@@ -675,9 +675,14 @@ const renderImagePool = async () => {
       name = `Image ${idx + 1}`;
     }
     
+    // Detect if this is a video (by mediaType field, file extension, or URL pattern)
+    const isVideo = img?.mediaType === 'video' || 
+      /\.(mp4|webm|mov)(\?|$)/i.test(imageUrl || '') ||
+      imageUrl?.startsWith('data:video/');
+    
     if (!imageUrl) {
       return `
-        <div class="image-pool-item missing" data-index="${idx}" title="Image missing">
+        <div class="image-pool-item missing" data-index="${idx}" title="Media missing">
           <div class="image-missing">❌ Missing</div>
           <div class="image-pool-item-overlay">
             <span class="image-pool-item-name">${escapeHtml(img?.name || 'Missing')}</span>
@@ -687,11 +692,16 @@ const renderImagePool = async () => {
       `;
     }
     
+    const mediaEl = isVideo
+      ? `<video src="${imageUrl}" muted preload="metadata" style="width:100%;height:100%;object-fit:cover;"></video>
+         <div class="video-play-icon" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;opacity:0.8;">▶</div>`
+      : `<img src="${imageUrl}" alt="${escapeHtml(name)}" loading="lazy">`;
+    
     return `
-      <div class="image-pool-item" data-index="${idx}" title="${escapeHtml(description || name)}">
-        <img src="${imageUrl}" alt="${escapeHtml(name)}" loading="lazy">
+      <div class="image-pool-item${isVideo ? ' video-item' : ''}" data-index="${idx}" title="${escapeHtml(description || name)}">
+        ${mediaEl}
         <div class="image-pool-item-overlay">
-          <span class="image-pool-item-name">${escapeHtml(name)}</span>
+          <span class="image-pool-item-name">${isVideo ? '🎬 ' : ''}${escapeHtml(name)}</span>
         </div>
         <button class="remove-btn" data-index="${idx}" title="Remove">✕</button>
       </div>
@@ -842,38 +852,65 @@ const saveScriptImageEdit = (index) => {
   console.log('[ImagePool] ✏️ Updated image:', img.name);
 };
 
-// Handle image upload - show form first
+// Handle media upload (image or video) - show form first
 const handleImageUpload = async (files) => {
   if (!editingScript || !files.length) return;
   
   const file = files[0]; // Handle one at a time
   
-  if (!file.type.startsWith('image/')) {
-    showNotification('Please select an image file');
+  const isImage = file.type.startsWith('image/');
+  const isVideo = file.type.startsWith('video/');
+  
+  if (!isImage && !isVideo) {
+    showNotification('Please select an image or video file');
     return;
   }
   
-  // Check file size (max 5MB)
-  if (file.size > 5 * 1024 * 1024) {
-    showNotification(`Image ${file.name} is too large (max 5MB)`);
+  // Check file size: 5MB for images, 50MB for videos
+  const maxSize = isVideo ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
+  if (file.size > maxSize) {
+    showNotification(`${isVideo ? 'Video' : 'Image'} ${file.name} is too large (max ${isVideo ? '50' : '5'}MB)`);
     return;
   }
   
   try {
-    const base64 = await fileToBase64(file);
+    let base64;
+    if (isVideo) {
+      // Videos: read raw base64, no compression
+      base64 = await fileToBase64Raw(file);
+    } else {
+      // Images: compress via canvas
+      base64 = await fileToBase64(file);
+    }
+    
     pendingImageFile = file;
     pendingImageBase64 = base64;
     
     // Show modal with form
-    showImageAddModal(base64, file.name);
+    showImageAddModal(base64, file.name, isVideo ? 'video' : 'image');
   } catch (error) {
-    console.error('Failed to convert image:', error);
-    showNotification('Failed to process image');
+    console.error('Failed to convert file:', error);
+    showNotification('Failed to process file');
   }
 };
 
-// Show image add modal
-const showImageAddModal = (imageData, fileName) => {
+// Read file as base64 without compression (for videos)
+const fileToBase64Raw = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+};
+
+// Track pending media type for the add modal
+let pendingMediaType = 'image';
+
+// Show media add modal (image or video)
+const showImageAddModal = (mediaData, fileName, mediaType = 'image') => {
+  pendingMediaType = mediaType;
+  
   // Create modal if it doesn't exist
   let modal = $('scriptImageAddModal');
   if (!modal) {
@@ -883,12 +920,13 @@ const showImageAddModal = (imageData, fileName) => {
     modal.innerHTML = `
       <div class="modal-content">
         <div class="modal-header">
-          <h3>📸 Add Image to Pool</h3>
+          <h3 id="scriptMediaAddTitle">📸 Add Image to Pool</h3>
           <button id="closeScriptImageModalBtn" class="icon-btn">✕</button>
         </div>
         <div class="modal-body">
           <div class="script-image-preview">
             <img id="scriptImagePreview" src="" alt="Preview">
+            <video id="scriptVideoPreview" controls muted style="display:none; max-width:100%; max-height:200px; border-radius:8px;"></video>
           </div>
           <div class="form-group">
             <label>Name:</label>
@@ -929,13 +967,27 @@ const showImageAddModal = (imageData, fileName) => {
     $('saveScriptImageBtn')?.addEventListener('click', saveImageToPool);
   }
   
+  // Update title based on media type
+  const titleEl = $('scriptMediaAddTitle');
+  if (titleEl) titleEl.textContent = mediaType === 'video' ? '🎬 Add Video to Pool' : '📸 Add Image to Pool';
+  
+  // Toggle image/video preview
+  const imgPreview = $('scriptImagePreview');
+  const vidPreview = $('scriptVideoPreview');
+  
+  if (mediaType === 'video') {
+    if (imgPreview) imgPreview.style.display = 'none';
+    if (vidPreview) { vidPreview.src = mediaData; vidPreview.style.display = 'block'; }
+  } else {
+    if (imgPreview) { imgPreview.src = mediaData; imgPreview.style.display = 'block'; }
+    if (vidPreview) { vidPreview.src = ''; vidPreview.style.display = 'none'; }
+  }
+  
   // Populate form
-  const preview = $('scriptImagePreview');
   const nameInput = $('scriptImageName');
   const descInput = $('scriptImageDescription');
   const tagsInput = $('scriptImageTags');
   
-  if (preview) preview.src = imageData;
   if (nameInput) nameInput.value = fileName.replace(/\.[^/.]+$/, ''); // Remove extension
   if (descInput) descInput.value = '';
   if (tagsInput) tagsInput.value = '';
@@ -978,20 +1030,22 @@ const saveImageToPool = async () => {
   }
   
   try {
-    // Upload image to Firebase Storage
+    // Upload media to Firebase Storage
     const result = await storeImage(pendingImageBase64, {
       name,
       description,
       category,
       tags,
-      scriptId: editingScript.id
+      scriptId: editingScript.id,
+      mediaType: pendingMediaType // 'image' or 'video'
     });
     
-    console.log(`[ImagePool] ✅ Image uploaded to Firebase Storage`);
+    const label = pendingMediaType === 'video' ? 'Video' : 'Image';
+    console.log(`[ImagePool] ✅ ${label} uploaded to Firebase Storage`);
     console.log(`[ImagePool] 📥 Download URL: ${result.downloadURL.substring(0, 60)}...`);
     
     // Add metadata + download URL to the script
-    // Only stores URL reference, not the actual image data
+    // Only stores URL reference, not the actual media data
     editingScript.imagePool.push({
       id: result.id,
       downloadURL: result.downloadURL, // Firebase Storage URL
@@ -1000,13 +1054,14 @@ const saveImageToPool = async () => {
       description,
       category,
       tags,
+      mediaType: pendingMediaType, // 'image' or 'video'
       createdAt: Date.now()
     });
     
     closeImageAddModal();
     renderImagePool();
     triggerAutoSave();
-    showNotification('Image uploaded to cloud!');
+    showNotification(`${label} uploaded to cloud!`);
     
   } catch (error) {
     console.error('[ImagePool] Failed to upload image:', error);

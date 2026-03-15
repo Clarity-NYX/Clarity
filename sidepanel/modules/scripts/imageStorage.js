@@ -31,30 +31,39 @@ const base64ToBlob = (base64) => {
   return new Blob([uInt8Array], { type: contentType });
 };
 
-// Store image in Firebase Storage via REST API
+// Store media (image or video) in Firebase Storage via REST API
 export const storeImage = async (imageData, metadata = {}) => {
-  const id = `img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const isVideo = metadata.mediaType === 'video' || imageData.startsWith('data:video/');
+  const prefix = isVideo ? 'vid' : 'img';
+  const id = `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const scriptId = metadata.scriptId || 'unknown';
-  const fileName = `${id}.jpg`;
+  
+  // Detect file extension from base64 content type
+  const contentType = imageData.split(';base64,')[0]?.split(':')[1] || (isVideo ? 'video/mp4' : 'image/jpeg');
+  const extMap = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
+                   'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov' };
+  const ext = extMap[contentType] || (isVideo ? '.mp4' : '.jpg');
+  
+  const fileName = `${id}${ext}`;
   const storagePath = `scripts/${scriptId}/${fileName}`;
   
   // URL encode the path for the API
   const encodedPath = encodeURIComponent(storagePath);
   
   try {
-    // Convert base64 to blob
+    // Convert base64 to blob (preserves original content type)
     const blob = base64ToBlob(imageData);
     
     // Upload URL for Firebase Storage
     const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${STORAGE_CONFIG.bucket}/o/${encodedPath}`;
     
-    console.log(`[ImageStorage] 📤 Uploading to: ${storagePath}`);
+    console.log(`[ImageStorage] 📤 Uploading ${isVideo ? 'video' : 'image'} to: ${storagePath} (${contentType})`);
     
-    // Upload the file
+    // Upload the file with correct content type
     const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'image/jpeg'
+        'Content-Type': contentType
       },
       body: blob
     });
