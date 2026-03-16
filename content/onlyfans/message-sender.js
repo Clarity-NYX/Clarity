@@ -585,14 +585,22 @@ export async function sendImageToChat(imageData, caption = null, price = 0) {
       const priceSet = await setMediaPrice(price);
       if (priceSet) {
         console.log('[Clarity] ✅ Price set to $' + price);
-        // Re-wait for send button after price change (UI may update)
-        await sleep(500);
       } else {
         console.log('[Clarity] ⚠️ Could not set price - sending as free');
       }
+      
+      // Re-find send button after price change (OnlyFans may re-render the button)
+      const updatedSendBtn = await waitForSendButtonReady(5000, 300);
+      if (updatedSendBtn) {
+        console.log('[Clarity] 🚀 Clicking send button (after price set)...');
+        updatedSendBtn.click();
+        await sleep(1000);
+        console.log('[Clarity] ✅ Image sent with price $' + price);
+        return { success: true, sent: true, priceSet: priceSet };
+      }
     }
     
-    // Click the send button
+    // Click the send button (free or price failed)
     console.log('[Clarity] 🚀 Clicking send button...');
     sendBtn.click();
     await sleep(1000);
@@ -725,10 +733,11 @@ async function setMediaPrice(price) {
     if (priceToggle) {
       console.log('[Clarity] 💰 Found price toggle button, clicking...');
       priceToggle.click();
-      await sleep(500);
+      // Wait longer for the price panel/input to animate in
+      await sleep(1500);
     }
     
-    // Strategy 2: Find the price input field (may already be visible or revealed by toggle)
+    // Strategy 2: Find the price input field with retry (may take time to appear)
     const priceInputSelectors = [
       'input[name*="price"]',
       'input[placeholder*="price"]',
@@ -738,44 +747,80 @@ async function setMediaPrice(price) {
       'input[at-attr="price_input"]',
       // Generic number inputs near the compose area
       '.b-chat__input input[type="number"]',
-      '.b-chat__footer input[type="number"]'
+      '.b-chat__footer input[type="number"]',
+      // Broader fallback
+      'input[type="number"]'
     ];
     
     let priceInput = null;
-    for (const selector of priceInputSelectors) {
-      const el = document.querySelector(selector);
-      if (el) {
-        priceInput = el;
-        console.log('[Clarity] 💰 Found price input via:', selector);
-        break;
+    
+    // Retry up to 5 times with 500ms delay (total 2.5s wait)
+    for (let attempt = 0; attempt < 5; attempt++) {
+      for (const selector of priceInputSelectors) {
+        const el = document.querySelector(selector);
+        if (el && el.offsetParent !== null) { // Check element is visible
+          priceInput = el;
+          console.log('[Clarity] 💰 Found price input via:', selector, '(attempt', attempt + 1, ')');
+          break;
+        }
       }
+      if (priceInput) break;
+      console.log('[Clarity] 💰 Price input not found yet, retrying in 500ms... (attempt', attempt + 1, ')');
+      await sleep(500);
     }
     
     if (!priceInput) {
-      console.log('[Clarity] ⚠️ Price input not found after toggle click');
+      console.log('[Clarity] ⚠️ Price input not found after retries');
       return false;
     }
     
     // Set the price value
     priceInput.focus();
+    priceInput.click();
+    await sleep(200);
+    
+    // Select all existing text and clear it
+    priceInput.select();
     await sleep(100);
     
     // Clear existing value
-    priceInput.value = '';
-    priceInput.dispatchEvent(new Event('input', { bubbles: true }));
-    await sleep(50);
-    
-    // Set the price
     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-    nativeInputValueSetter.call(priceInput, String(price));
+    nativeInputValueSetter.call(priceInput, '');
     priceInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(100);
+    
+    // Type the price digit by digit for maximum compatibility
+    const priceStr = String(price);
+    for (let i = 0; i < priceStr.length; i++) {
+      const currentValue = priceStr.substring(0, i + 1);
+      nativeInputValueSetter.call(priceInput, currentValue);
+      priceInput.dispatchEvent(new Event('input', { bubbles: true }));
+      priceInput.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(50);
+    }
+    
+    // Final events to ensure the value is registered
     priceInput.dispatchEvent(new Event('change', { bubbles: true }));
     priceInput.dispatchEvent(new Event('blur', { bubbles: true }));
     
-    await sleep(200);
+    // Wait for OnlyFans to process the price
+    await sleep(500);
     
     console.log('[Clarity] 💰 Price input set to:', priceInput.value);
-    return priceInput.value === String(price);
+    
+    // Verify the value was set
+    if (priceInput.value == price) {
+      console.log('[Clarity] 💰 ✅ Price verified: $' + price);
+      return true;
+    } else {
+      console.log('[Clarity] 💰 ⚠️ Price mismatch: expected', price, 'got', priceInput.value);
+      // One more attempt with direct assignment
+      priceInput.value = String(price);
+      priceInput.dispatchEvent(new Event('input', { bubbles: true }));
+      priceInput.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(300);
+      return priceInput.value == price;
+    }
     
   } catch (error) {
     console.error('[Clarity] Error setting price:', error);
