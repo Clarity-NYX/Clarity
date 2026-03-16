@@ -43,22 +43,39 @@ function extractMessageData(el, index) {
                     el.id ||
                     null;
   
-  // Detect media types FIRST
+  // ── Detect media types ──
   let mediaType = null;
   let mediaUrl = null;
+  let mediaThumbnail = null;
   
-  // Check for images
-  const imgEl = el.querySelector('.b-chat__message-media img, .b-chat__message__media img, img[src*="cdn"], .m-media img');
-  if (imgEl) {
-    mediaType = 'image';
-    mediaUrl = imgEl.src || imgEl.getAttribute('data-src');
+  // Check for media wrapper (covers images, videos, PPV)
+  const hasMedia = el.classList.contains('m-has-media') || 
+                   el.querySelector('.b-chat__message__media-wrapper, .b-chat__message__media, .b-chat__message-media');
+  
+  // Check for video (look for video class/element or play button)
+  const videoContainer = el.querySelector('.m-only-video, .m-video, [class*="video-wrapper"], video');
+  const isVideo = !!videoContainer || el.querySelector('.vjs-big-play-button');
+  
+  // Get thumbnail image (works for both images and video previews)
+  const thumbEl = el.querySelector(
+    '.b-post__media-bg img, ' +
+    '.b-chat__message__media img, ' +
+    '.b-chat__message-media img, ' +
+    '.b-placeholder-preview img, ' +
+    '.post_media img, ' +
+    'img[src*="cdn"]'
+  );
+  if (thumbEl) {
+    mediaThumbnail = thumbEl.src || thumbEl.getAttribute('data-src');
   }
   
-  // Check for videos
-  const videoEl = el.querySelector('video, .b-chat__message-media video, [class*="video"]');
-  if (videoEl && !mediaType) {
+  if (isVideo) {
     mediaType = 'video';
-    mediaUrl = videoEl.src || videoEl.querySelector('source')?.src;
+    const videoEl = el.querySelector('video source, video');
+    mediaUrl = videoEl?.src || videoEl?.querySelector('source')?.src || null;
+  } else if (thumbEl && hasMedia) {
+    mediaType = 'image';
+    mediaUrl = mediaThumbnail;
   }
   
   // Check for PPV/locked content
@@ -67,20 +84,42 @@ function extractMessageData(el, index) {
     mediaType = 'ppv';
   }
   
-  // Check for media containers (generic)
-  const mediaContainer = el.querySelector('.b-chat__message-media, .b-chat__message__media, .m-media, [class*="media-wrapper"]');
-  if (mediaContainer && !mediaType) {
-    // Try to determine type from container
-    if (mediaContainer.querySelector('img')) {
-      mediaType = 'image';
-    } else if (mediaContainer.querySelector('video')) {
-      mediaType = 'video';
-    } else {
-      mediaType = 'media';
+  // Fallback media detection
+  if (hasMedia && !mediaType) {
+    mediaType = 'media';
+  }
+  
+  // ── Extract payment status ──
+  let paymentStatus = null;  // null = not a paid message
+  let paymentAmount = null;
+  
+  const paymentEl = el.querySelector('.b-chat__message__payment-state, [at-attr="payment_state"]');
+  if (paymentEl) {
+    const paymentText = (paymentEl.innerText || paymentEl.textContent || '').trim();
+    
+    // Extract dollar amount
+    const amountMatch = paymentText.match(/\$[\d,.]+/);
+    if (amountMatch) {
+      paymentAmount = amountMatch[0];
+    }
+    
+    // Determine paid/unpaid status
+    if (paymentText.toLowerCase().includes('not paid')) {
+      paymentStatus = 'unpaid';
+    } else if (paymentText.toLowerCase().includes('paid') || paymentText.toLowerCase().includes('unlocked') || paymentText.toLowerCase().includes('purchased')) {
+      paymentStatus = 'paid';
+    } else if (amountMatch) {
+      // Has amount but status unclear — check for "not paid" vs just amount shown
+      paymentStatus = 'unpaid';
     }
   }
   
-  // Extract text
+  // Also check message classes for payment hints
+  if (!paymentStatus && el.classList.contains('m-not-paid-yet')) {
+    paymentStatus = 'unpaid';
+  }
+  
+  // ── Extract text ──
   let text = '';
   const textEl = el.querySelector(SELECTORS.messageText);
   
@@ -90,7 +129,7 @@ function extractMessageData(el, index) {
   
   if (!text?.trim()) {
     const clone = el.cloneNode(true);
-    clone.querySelectorAll('time, [class*="time"], [class*="media"], [class*="tip"]')
+    clone.querySelectorAll('time, [class*="time"], [class*="media"], [class*="tip"], [class*="payment"]')
       .forEach(e => e.remove());
     text = clone.innerText || clone.textContent;
   }
@@ -115,22 +154,25 @@ function extractMessageData(el, index) {
   }
   
   // Skip if still no content
-  if (!text) return null;
+  if (!text && !mediaType) return null;
   
   // Extract time - try datetime attribute first (more reliable)
   const timeEl = el.querySelector(SELECTORS.messageTime);
-  const datetime = timeEl?.getAttribute('datetime') || '';  // ISO format if available
+  const datetime = timeEl?.getAttribute('datetime') || '';
   const timeDisplay = timeEl?.innerText || timeEl?.textContent || '';
   
   return {
-    id: messageId,              // OnlyFans message ID if available
-    text,
+    id: messageId,
+    text: text || '',
     isFromMe,
-    time: timeDisplay.trim(),   // Display time (e.g., "2:30 PM")
-    datetime: datetime,         // ISO datetime if available
-    order: index,               // DOM position = chronological order
-    mediaType: mediaType,       // 'image', 'video', 'ppv', 'media', or null
-    mediaUrl: mediaUrl          // URL if available
+    time: timeDisplay.trim(),
+    datetime: datetime,
+    order: index,
+    mediaType,                  // 'image', 'video', 'ppv', 'media', or null
+    mediaUrl,                   // Direct media URL if available
+    mediaThumbnail,             // Thumbnail image URL (for video frames too)
+    paymentStatus,              // 'paid', 'unpaid', or null
+    paymentAmount               // '$25' etc, or null
   };
 }
 
@@ -146,26 +188,46 @@ export function startMessageObserver() {
   
   observer = new MutationObserver(mutations => {
     let hasNewContent = false;
+    let hasPaymentChange = false;
     
     for (const mutation of mutations) {
-      if (mutation.type !== 'childList' || !mutation.addedNodes.length) continue;
-      
-      for (const node of mutation.addedNodes) {
-        if (node.nodeType === Node.ELEMENT_NODE && 
-            (node.classList?.contains('b-chat__message') || 
-             node.querySelector?.('.b-chat__message'))) {
-          hasNewContent = true;
-          break;
+      // Check for new messages (childList changes)
+      if (mutation.type === 'childList' && mutation.addedNodes.length) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === Node.ELEMENT_NODE && 
+              (node.classList?.contains('b-chat__message') || 
+               node.querySelector?.('.b-chat__message'))) {
+            hasNewContent = true;
+            break;
+          }
         }
       }
-      if (hasNewContent) break;
+      
+      // Check for payment status changes (class or text changes on payment elements)
+      if (mutation.type === 'characterData' || mutation.type === 'attributes') {
+        const target = mutation.target?.closest?.('.b-chat__message') || mutation.target?.parentElement?.closest?.('.b-chat__message');
+        if (target) {
+          const paymentEl = target.querySelector('.b-chat__message__payment-state, [at-attr="payment_state"]');
+          if (paymentEl || mutation.target.classList?.contains('m-not-paid-yet')) {
+            hasPaymentChange = true;
+          }
+        }
+      }
     }
     
-    if (hasNewContent) {
+    if (hasNewContent || hasPaymentChange) {
       // Debounce - wait a bit for all DOM updates to finish
       clearTimeout(observer.debounceTimer);
       observer.debounceTimer = setTimeout(() => {
         const newMessages = extractAllMessages();
+        
+        if (hasPaymentChange) {
+          // Payment status changed — re-send all messages to update UI
+          messages = newMessages;
+          sendChatMessages(newMessages);
+          console.log('[Clarity] 💰 Payment status change detected, refreshing chat');
+        }
+        
         if (newMessages.length > messages.length) {
           // Find actually new messages
           const actuallyNewMessages = newMessages.slice(messages.length);
@@ -190,7 +252,7 @@ export function startMessageObserver() {
     }
   });
   
-  observer.observe(chatContainer, { childList: true, subtree: true });
+  observer.observe(chatContainer, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['class'] });
 }
 
 export function stopMessageObserver() {

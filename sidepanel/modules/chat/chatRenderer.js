@@ -139,12 +139,47 @@ export const renderChatMessages = () => {
     return;
   }
   
-  chatMessages.innerHTML = messages.map(msg => `
-    <div class="message ${msg.isFromMe ? 'from-me' : 'from-them'}">
-      <div class="message-text">${escapeHtml(msg.text)}</div>
-      ${msg.time ? `<div class="message-time">${msg.time}</div>` : ''}
-    </div>`
-  ).join('');
+  chatMessages.innerHTML = messages.map(msg => {
+    // Build media preview HTML
+    let mediaHtml = '';
+    if (msg.mediaThumbnail || msg.mediaUrl) {
+      const thumbSrc = msg.mediaThumbnail || msg.mediaUrl;
+      const isVideo = msg.mediaType === 'video';
+      mediaHtml = `
+        <div class="message-media ${isVideo ? 'is-video' : ''}">
+          <img src="${thumbSrc}" alt="${isVideo ? 'Video' : 'Image'}" loading="lazy" class="message-media-thumb">
+          ${isVideo ? '<div class="message-media-play">▶</div>' : ''}
+        </div>`;
+    } else if (msg.mediaType === 'ppv' && !msg.mediaThumbnail) {
+      mediaHtml = `<div class="message-media is-ppv"><div class="message-media-lock">🔒</div></div>`;
+    }
+    
+    // Build payment badge HTML
+    let paymentHtml = '';
+    if (msg.paymentStatus) {
+      const isPaid = msg.paymentStatus === 'paid';
+      const badgeClass = isPaid ? 'payment-paid' : 'payment-unpaid';
+      const badgeIcon = isPaid ? '✅' : '⏳';
+      const badgeText = isPaid 
+        ? `${badgeIcon} ${msg.paymentAmount || ''} Paid`
+        : `${badgeIcon} ${msg.paymentAmount || ''} Not paid yet`;
+      paymentHtml = `<div class="message-payment ${badgeClass}">${badgeText}</div>`;
+    }
+    
+    // Only show text if it's not just a media placeholder
+    const isMediaOnly = msg.mediaType && /^\[.+\]$/.test(msg.text);
+    const textHtml = (!isMediaOnly && msg.text) 
+      ? `<div class="message-text">${escapeHtml(msg.text)}</div>` 
+      : '';
+    
+    return `
+      <div class="message ${msg.isFromMe ? 'from-me' : 'from-them'}${msg.paymentStatus ? ' has-payment' : ''}${msg.mediaType ? ' has-media' : ''}" ${msg.id ? `data-msg-id="${msg.id}"` : ''}>
+        ${mediaHtml}
+        ${textHtml}
+        ${paymentHtml}
+        ${msg.time ? `<div class="message-time">${escapeHtml(msg.time)}</div>` : ''}
+      </div>`;
+  }).join('');
   
   chatMessages.scrollTop = chatMessages.scrollHeight;
 };

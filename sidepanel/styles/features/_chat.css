@@ -2251,3 +2251,106 @@ body.telegram-platform .ai-message-part::after {
 .preview-message-container .message-preview:not(:first-of-type)::before {
   display: none;
 }
+
+/* ===========================================
+   Message Media (Images/Videos in Chat)
+   =========================================== */
+
+.message-media {
+  position: relative;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 6px;
+  max-width: 200px;
+  background: var(--surface);
+}
+
+.message-media-thumb {
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  display: block;
+  border-radius: var(--radius-md);
+}
+
+.message-media.is-video .message-media-thumb {
+  filter: brightness(0.85);
+}
+
+.message-media-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 36px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: white;
+  pointer-events: none;
+}
+
+.message-media.is-ppv {
+  width: 100%;
+  max-width: 200px;
+  height: 80px;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(236, 72, 153, 0.2));
+  border: 1px dashed rgba(139, 92, 246, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-media-lock {
+  font-size: 24px;
+  opacity: 0.7;
+}
+
+/* ===========================================
+   Payment Status Badges
+   =========================================== */
+
+.message-payment {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 10px;
+  margin-top: 4px;
+  letter-spacing: 0.2px;
+}
+
+.message-payment.payment-unpaid {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.message-payment.payment-paid {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* Message with media adjustments */
+.message.has-media {
+  padding: 6px;
+}
+
+.message.has-media .message-text {
+  padding: 4px 8px 0;
+}
+
+.message.has-media .message-time {
+  padding: 0 8px 2px;
+}
+
+.message.has-media .message-payment {
+  margin: 2px 8px 4px;
+}
