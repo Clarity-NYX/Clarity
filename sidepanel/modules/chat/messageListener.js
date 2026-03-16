@@ -3,14 +3,18 @@
 // ============================================================
 
 import Store from '../../state/store.js';
-import { hideError } from '../../utils/notify.js';
+import { hideError, showNotification } from '../../utils/notify.js';
 import { checkGoalCompletion } from '../scripts/index.js';
 import { handleIncomingMessages } from './chatSync.js';
 import { syncNewMessagesToDatabase } from './chatStorage.js';
-import { renderChatMessages } from './chatRenderer.js';
+import { renderChatMessages, displaySubscriberStats } from './chatRenderer.js';
 import { updateUnreadChats, handleNewUnreadDetected } from './chatAlarm.js';
 import { loadChatList, renderChatList, updateAutoChatState } from './chatList.js';
+import { saveNotesToDB } from '../notes.js';
 import { $ } from '../../utils/dom.js';
+
+// Track payment statuses to detect unpaid → paid transitions
+let previousPaymentStatuses = new Map(); // msgKey → 'unpaid' | 'paid'
 
 // Setup message listener
 export const setupMessageListener = () => {
@@ -81,6 +85,9 @@ export const setupMessageListener = () => {
       const newMessages = message.data || [];
       console.log('[Chat] CHAT_MESSAGES received:', newMessages.length, 'messages, platform:', message.platform);
       
+      // ── Track payment status transitions (unpaid → paid) ──
+      checkPaymentTransitions(newMessages);
+      
       if (Store.get('currentProfile') && Store.get('currentSubscriberId')) {
         handleIncomingMessages(newMessages);
       } else {
@@ -127,4 +134,69 @@ export const setupMessageListener = () => {
       }
     }
   });
+};
+
+// ============================================================
+// PAYMENT TRACKING - Detect unpaid → paid transitions
+// ============================================================
+
+const checkPaymentTransitions = (messages) => {
+  if (!messages || !Array.isArray(messages)) return;
+  
+  let newlyPaidAmount = 0;
+  
+  for (const msg of messages) {
+    if (!msg.paymentStatus || !msg.paymentAmount) continue;
+    
+    // Create a stable key for this message
+    const key = msg.id || `${msg.order}|${msg.isFromMe ? '1' : '0'}|${msg.paymentAmount}`;
+    const prevStatus = previousPaymentStatuses.get(key);
+    
+    // Detect unpaid → paid transition
+    if (prevStatus === 'unpaid' && msg.paymentStatus === 'paid') {
+      const amount = parseFloat(msg.paymentAmount.replace(/[$,]/g, '')) || 0;
+      if (amount > 0) {
+        newlyPaidAmount += amount;
+        console.log(`[Payment] 💰 PPV paid! ${msg.paymentAmount} (message: ${key})`);
+      }
+    }
+    
+    // Update tracking map
+    previousPaymentStatuses.set(key, msg.paymentStatus);
+  }
+  
+  // If any payments came through, update totalSpent
+  if (newlyPaidAmount > 0) {
+    addToTotalSpent(newlyPaidAmount);
+  }
+};
+
+// Add amount to the subscriber's totalSpent
+const addToTotalSpent = (amount) => {
+  const notes = Store.get('currentNotes') || {};
+  
+  // Parse current totalSpent (e.g., "$150.00" → 150.00)
+  const currentSpent = parseFloat((notes.totalSpent || '$0').replace(/[$,]/g, '')) || 0;
+  const newTotal = currentSpent + amount;
+  const newTotalStr = `$${newTotal.toFixed(2)}`;
+  
+  console.log(`[Payment] 💰 Updating totalSpent: ${notes.totalSpent || '$0'} + $${amount.toFixed(2)} = ${newTotalStr}`);
+  
+  // Update notes in store
+  notes.totalSpent = newTotalStr;
+  Store.set('currentNotes', notes);
+  
+  // Update the UI display immediately
+  displaySubscriberStats(notes);
+  
+  // Update the totalSpent element directly for instant feedback
+  const totalSpentEl = $('totalSpent');
+  if (totalSpentEl) totalSpentEl.textContent = newTotalStr;
+  
+  // Persist to database
+  if (Store.get('currentProfile') && Store.get('currentSubscriberId')) {
+    saveNotesToDB(notes);
+  }
+  
+  showNotification(`💰 PPV Paid! +$${amount.toFixed(2)} → Total: ${newTotalStr}`);
 };
