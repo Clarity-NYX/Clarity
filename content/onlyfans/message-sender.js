@@ -705,9 +705,10 @@ async function simulatePaste(target, file) {
 // ============================================================
 
 // Set the price on uploaded media before sending
+// OnlyFans flow: click lock/price button → modal opens → type price in input → click Save
 async function setMediaPrice(price) {
   try {
-    // Strategy 1: Look for a price/lock toggle button and click it to reveal input
+    // Step 1: Click the price/lock toggle to open the price modal
     const priceToggleSelectors = [
       'button[class*="price"]',
       'button[class*="lock"]',
@@ -715,7 +716,6 @@ async function setMediaPrice(price) {
       '[class*="lock-btn"]',
       '.b-make-post__lock-btn',
       'button[at-attr="price_btn"]',
-      // Look for lock icon SVG button
       'svg[data-icon-name="icon-lock"]',
       'use[href="#icon-lock"]'
     ];
@@ -724,7 +724,6 @@ async function setMediaPrice(price) {
     for (const selector of priceToggleSelectors) {
       const el = document.querySelector(selector);
       if (el) {
-        // If it's an SVG, get the parent button
         priceToggle = el.closest('button') || el;
         break;
       }
@@ -733,39 +732,33 @@ async function setMediaPrice(price) {
     if (priceToggle) {
       console.log('[Clarity] 💰 Found price toggle button, clicking...');
       priceToggle.click();
-      // Wait longer for the price panel/input to animate in
-      await sleep(1500);
+      await sleep(1500); // Wait for modal to animate in
     }
     
-    // Strategy 2: Find the price input field with retry (may take time to appear)
+    // Step 2: Find the price input inside the modal (with retry)
+    // The actual OnlyFans modal has: input[placeholder="Free"] with type="text" and inputmode="decimal"
     const priceInputSelectors = [
-      'input[name*="price"]',
-      'input[placeholder*="price"]',
-      'input[placeholder*="Price"]',
-      'input[type="number"][class*="price"]',
-      '.b-make-post__price input',
-      'input[at-attr="price_input"]',
-      // Generic number inputs near the compose area
-      '.b-chat__input input[type="number"]',
-      '.b-chat__footer input[type="number"]',
-      // Broader fallback
-      'input[type="number"]'
+      '#ModalPostPrice___BV_modal_body_ input',
+      '.b-price-input input',
+      'input[placeholder="Free"]',
+      'input[autocomplete="price-input"]',
+      'input[inputmode="decimal"]',
+      'input[id^="priceInput"]'
     ];
     
     let priceInput = null;
     
-    // Retry up to 5 times with 500ms delay (total 2.5s wait)
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < 8; attempt++) {
       for (const selector of priceInputSelectors) {
         const el = document.querySelector(selector);
-        if (el && el.offsetParent !== null) { // Check element is visible
+        if (el) {
           priceInput = el;
           console.log('[Clarity] 💰 Found price input via:', selector, '(attempt', attempt + 1, ')');
           break;
         }
       }
       if (priceInput) break;
-      console.log('[Clarity] 💰 Price input not found yet, retrying in 500ms... (attempt', attempt + 1, ')');
+      console.log('[Clarity] 💰 Price input not found yet, retrying... (attempt', attempt + 1, ')');
       await sleep(500);
     }
     
@@ -774,52 +767,77 @@ async function setMediaPrice(price) {
       return false;
     }
     
-    // Set the price value
+    // Step 3: Focus and set the price value
     priceInput.focus();
     priceInput.click();
     await sleep(200);
     
-    // Select all existing text and clear it
+    // Clear existing value
     priceInput.select();
     await sleep(100);
     
-    // Clear existing value
     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
     nativeInputValueSetter.call(priceInput, '');
     priceInput.dispatchEvent(new Event('input', { bubbles: true }));
     await sleep(100);
     
-    // Type the price digit by digit for maximum compatibility
+    // Type the price digit by digit
     const priceStr = String(price);
     for (let i = 0; i < priceStr.length; i++) {
       const currentValue = priceStr.substring(0, i + 1);
       nativeInputValueSetter.call(priceInput, currentValue);
       priceInput.dispatchEvent(new Event('input', { bubbles: true }));
       priceInput.dispatchEvent(new Event('change', { bubbles: true }));
-      await sleep(50);
+      await sleep(80);
     }
     
-    // Final events to ensure the value is registered
+    // Final events
     priceInput.dispatchEvent(new Event('change', { bubbles: true }));
     priceInput.dispatchEvent(new Event('blur', { bubbles: true }));
-    
-    // Wait for OnlyFans to process the price
     await sleep(500);
     
-    console.log('[Clarity] 💰 Price input set to:', priceInput.value);
+    console.log('[Clarity] 💰 Price input value:', priceInput.value);
     
-    // Verify the value was set
-    if (priceInput.value == price) {
-      console.log('[Clarity] 💰 ✅ Price verified: $' + price);
+    // Step 4: Find and click the "Save" button in the modal footer
+    // The modal has: <footer class="modal-footer"> with Cancel and Save buttons
+    let saveBtn = null;
+    
+    for (let attempt = 0; attempt < 5; attempt++) {
+      // Look for Save button in the modal footer
+      const modalFooter = document.querySelector(
+        '#ModalPostPrice___BV_modal_footer_, ' +
+        '.modal-footer'
+      );
+      
+      if (modalFooter) {
+        const buttons = modalFooter.querySelectorAll('button');
+        for (const btn of buttons) {
+          const text = btn.textContent?.trim().toLowerCase();
+          if (text === 'save' && !btn.disabled) {
+            saveBtn = btn;
+            break;
+          }
+        }
+      }
+      
+      if (saveBtn) break;
+      
+      console.log('[Clarity] 💰 Save button not enabled yet, waiting... (attempt', attempt + 1, ')');
+      await sleep(500);
+    }
+    
+    if (saveBtn) {
+      console.log('[Clarity] 💰 Clicking Save button...');
+      saveBtn.click();
+      await sleep(1000); // Wait for modal to close
+      console.log('[Clarity] 💰 ✅ Price $' + price + ' saved!');
       return true;
     } else {
-      console.log('[Clarity] 💰 ⚠️ Price mismatch: expected', price, 'got', priceInput.value);
-      // One more attempt with direct assignment
-      priceInput.value = String(price);
-      priceInput.dispatchEvent(new Event('input', { bubbles: true }));
-      priceInput.dispatchEvent(new Event('change', { bubbles: true }));
-      await sleep(300);
-      return priceInput.value == price;
+      console.log('[Clarity] ⚠️ Save button not found or still disabled');
+      // Try to close modal anyway
+      const cancelBtn = document.querySelector('.modal-footer button:first-child');
+      if (cancelBtn) cancelBtn.click();
+      return false;
     }
     
   } catch (error) {
