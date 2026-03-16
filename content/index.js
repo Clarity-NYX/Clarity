@@ -86,7 +86,7 @@ import {
       // Handle image sending request (for OnlyFans)
       if (message.type === 'SEND_IMAGE') {
         console.log('[Clarity] 📸 Image send requested');
-        sendImageToChat(message.imageUrl, message.caption)
+        sendImageToChat(message.imageUrl, message.caption, message.price || 0)
           .then(result => {
             console.log('[Clarity] 📸 Image send result:', result);
             sendResponse(result);

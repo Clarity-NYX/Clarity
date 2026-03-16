@@ -1244,6 +1244,7 @@ const sendMediaOnly = async (currentAction) => {
       type: 'SEND_IMAGE',
       imageUrl: finalImageData,
       isUrl: false,
+      price: currentAction.price || 0,
       data: {
         imageData: finalImageData
       }
@@ -1585,11 +1586,12 @@ export const sendToChat = async () => {
         console.log('[Clarity AI] Sending image:', poolImage.name);
         sendBtn.innerHTML = '⏳ Uploading image...';
         
-        // Send the image first
+        // Send the image first (with price for PPV if set)
         const imageResponse = await chrome.tabs.sendMessage(tab.id, {
           type: 'SEND_IMAGE',
           imageUrl: imageData,
-          isUrl: false
+          isUrl: false,
+          price: currentAction.price || 0
         });
         
         if (!imageResponse?.success) {

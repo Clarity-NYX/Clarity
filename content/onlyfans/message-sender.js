@@ -468,9 +468,9 @@ async function waitForSendButtonReady(maxWaitMs = 30000, checkIntervalMs = 500) 
   return null;
 }
 
-// Send image to chat via drag & drop
-export async function sendImageToChat(imageData, caption = null) {
-  console.log('[Clarity] 📸 Sending image to OnlyFans chat...');
+// Send image to chat via drag & drop (with optional price for PPV)
+export async function sendImageToChat(imageData, caption = null, price = 0) {
+  console.log('[Clarity] 📸 Sending image to OnlyFans chat...', price > 0 ? `(PPV $${price})` : '(free)');
   
   if (!isOnChatPage()) {
     return { success: false, error: 'Not on a chat page' };
@@ -576,6 +576,22 @@ export async function sendImageToChat(imageData, caption = null) {
       }
     }
     
+    // ============================================================
+    // SET PRICE (PPV) - If price > 0, set the price before sending
+    // ============================================================
+    if (price > 0) {
+      console.log('[Clarity] 💰 Setting PPV price: $' + price);
+      
+      const priceSet = await setMediaPrice(price);
+      if (priceSet) {
+        console.log('[Clarity] ✅ Price set to $' + price);
+        // Re-wait for send button after price change (UI may update)
+        await sleep(500);
+      } else {
+        console.log('[Clarity] ⚠️ Could not set price - sending as free');
+      }
+    }
+    
     // Click the send button
     console.log('[Clarity] 🚀 Clicking send button...');
     sendBtn.click();
@@ -672,6 +688,97 @@ async function simulatePaste(target, file) {
     return true;
   } catch (error) {
     console.error('[Clarity] Paste error:', error);
+    return false;
+  }
+}
+
+// ============================================================
+// PRICE SETTING (PPV) - Set price on uploaded media
+// ============================================================
+
+// Set the price on uploaded media before sending
+async function setMediaPrice(price) {
+  try {
+    // Strategy 1: Look for a price/lock toggle button and click it to reveal input
+    const priceToggleSelectors = [
+      'button[class*="price"]',
+      'button[class*="lock"]',
+      '[class*="price-btn"]',
+      '[class*="lock-btn"]',
+      '.b-make-post__lock-btn',
+      'button[at-attr="price_btn"]',
+      // Look for lock icon SVG button
+      'svg[data-icon-name="icon-lock"]',
+      'use[href="#icon-lock"]'
+    ];
+    
+    let priceToggle = null;
+    for (const selector of priceToggleSelectors) {
+      const el = document.querySelector(selector);
+      if (el) {
+        // If it's an SVG, get the parent button
+        priceToggle = el.closest('button') || el;
+        break;
+      }
+    }
+    
+    if (priceToggle) {
+      console.log('[Clarity] 💰 Found price toggle button, clicking...');
+      priceToggle.click();
+      await sleep(500);
+    }
+    
+    // Strategy 2: Find the price input field (may already be visible or revealed by toggle)
+    const priceInputSelectors = [
+      'input[name*="price"]',
+      'input[placeholder*="price"]',
+      'input[placeholder*="Price"]',
+      'input[type="number"][class*="price"]',
+      '.b-make-post__price input',
+      'input[at-attr="price_input"]',
+      // Generic number inputs near the compose area
+      '.b-chat__input input[type="number"]',
+      '.b-chat__footer input[type="number"]'
+    ];
+    
+    let priceInput = null;
+    for (const selector of priceInputSelectors) {
+      const el = document.querySelector(selector);
+      if (el) {
+        priceInput = el;
+        console.log('[Clarity] 💰 Found price input via:', selector);
+        break;
+      }
+    }
+    
+    if (!priceInput) {
+      console.log('[Clarity] ⚠️ Price input not found after toggle click');
+      return false;
+    }
+    
+    // Set the price value
+    priceInput.focus();
+    await sleep(100);
+    
+    // Clear existing value
+    priceInput.value = '';
+    priceInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(50);
+    
+    // Set the price
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    nativeInputValueSetter.call(priceInput, String(price));
+    priceInput.dispatchEvent(new Event('input', { bubbles: true }));
+    priceInput.dispatchEvent(new Event('change', { bubbles: true }));
+    priceInput.dispatchEvent(new Event('blur', { bubbles: true }));
+    
+    await sleep(200);
+    
+    console.log('[Clarity] 💰 Price input set to:', priceInput.value);
+    return priceInput.value === String(price);
+    
+  } catch (error) {
+    console.error('[Clarity] Error setting price:', error);
     return false;
   }
 }
