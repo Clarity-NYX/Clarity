@@ -493,8 +493,27 @@ export async function sendImageToChat(imageData, caption = null) {
     
     console.log('[Clarity] ✅ Found chat editor:', chatEditor.className);
     
+    // Detect MIME type from base64 data URL header (supports images AND videos)
+    let mimeType = 'image/jpeg';
+    let filename = 'image.jpg';
+    
+    if (imageData.startsWith('data:')) {
+      const match = imageData.match(/^data:([^;,]+)[;,]/);
+      if (match) {
+        mimeType = match[1];
+        if (mimeType.startsWith('video/')) {
+          const ext = mimeType.split('/')[1] === 'quicktime' ? 'mov' : (mimeType.split('/')[1] || 'mp4');
+          filename = `video.${ext}`;
+          console.log('[Clarity] 🎥 Detected video file:', filename, mimeType);
+        } else {
+          const ext = mimeType.split('/')[1] || 'jpg';
+          filename = `image.${ext}`;
+        }
+      }
+    }
+    
     // Convert base64 to File
-    const file = await base64ToFile(imageData, 'image.jpg', 'image/jpeg');
+    const file = await base64ToFile(imageData, filename, mimeType);
     if (!file) {
       return { success: false, error: 'Failed to create file from image data' };
     }
