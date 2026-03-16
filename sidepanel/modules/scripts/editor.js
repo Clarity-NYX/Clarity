@@ -805,7 +805,21 @@ const openScriptImageEditModal = (img, index) => {
   const tagsInput = $('scriptImageEditTags');
   
   const imageUrl = img.downloadURL || img.imageData || '';
-  if (preview) preview.src = imageUrl;
+  const isVideo = img.mediaType === 'video' || /\.(mp4|webm|mov)(\?|$)/i.test(imageUrl);
+  if (preview) {
+    if (isVideo && preview.tagName === 'IMG') {
+      // Replace img with video element for video previews
+      const video = document.createElement('video');
+      video.id = preview.id;
+      video.className = preview.className;
+      video.src = imageUrl;
+      video.muted = true;
+      video.preload = 'metadata';
+      preview.parentNode.replaceChild(video, preview);
+    } else {
+      preview.src = imageUrl;
+    }
+  }
   if (nameInput) nameInput.value = img.name || '';
   if (descInput) descInput.value = img.description || '';
   if (categorySelect) categorySelect.value = img.category || 'other';

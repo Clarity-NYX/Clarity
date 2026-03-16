@@ -72,13 +72,18 @@ const updateImagePoolPreview = () => {
   if (selectedPoolImage) {
     // Support both downloadURL (Firebase Storage) and imageData (legacy/base64)
     const imageUrl = selectedPoolImage.downloadURL || selectedPoolImage.imageData;
+    const isVideo = selectedPoolImage.mediaType === 'video' || /\.(mp4|webm|mov)(\?|$)/i.test(imageUrl || '');
+    
+    const mediaTag = isVideo
+      ? `<video src="${imageUrl}" class="pool-preview-thumb" muted preload="metadata"></video>`
+      : `<img src="${imageUrl}" class="pool-preview-thumb" alt="${selectedPoolImage.name}">`;
     
     previewContainer.classList.remove('hidden');
     previewContainer.innerHTML = `
       <div class="pool-image-preview">
-        <img src="${imageUrl}" class="pool-preview-thumb" alt="${selectedPoolImage.name}">
+        ${mediaTag}
         <div class="pool-preview-info">
-          <span class="pool-preview-name">${selectedPoolImage.name}</span>
+          <span class="pool-preview-name">${isVideo ? '🎬 ' : ''}${selectedPoolImage.name}</span>
           <span class="pool-preview-category">${selectedPoolImage.category || ''}</span>
         </div>
         <button type="button" id="removePoolImageBtn" class="pool-preview-remove" title="Remove">✕</button>
@@ -153,11 +158,15 @@ const showImagePoolPicker = () => {
           ${allImages.map(img => {
             // Support both downloadURL (Firebase) and imageData (legacy)
             const imageUrl = img.downloadURL || img.imageData;
+            const isVid = img.mediaType === 'video' || /\.(mp4|webm|mov)(\?|$)/i.test(imageUrl || '');
+            const mediaEl = isVid
+              ? `<video src="${imageUrl}" muted preload="metadata" style="width:100%;height:100%;object-fit:cover;"></video>`
+              : `<img src="${imageUrl}" alt="${img.name}" loading="lazy">`;
             return `
               <div class="image-picker-item" data-id="${img.id}" title="${img.description || img.name}">
-                <img src="${imageUrl}" alt="${img.name}" loading="lazy">
+                ${mediaEl}
                 <div class="image-picker-overlay">
-                  <span>${img.name}</span>
+                  <span>${isVid ? '🎬 ' : ''}${img.name}</span>
                 </div>
               </div>
             `;
