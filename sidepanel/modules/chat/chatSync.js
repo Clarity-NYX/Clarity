@@ -20,13 +20,25 @@ export const handleIncomingMessages = (scannedMessages) => {
   const currentProfile = Store.get('currentProfile');
   const currentSubscriberId = Store.get('currentSubscriberId');
   
-  // Get existing stored messages
+  // CRITICAL: Skip if loadAndSyncChat is in progress (prevents race condition)
+  // When switching chats, storedChat is cleared before DB fetch starts.
+  // Content script autoLoadChat fires at 500ms with only ~20 visible DOM messages.
+  // Without this guard, those 20 messages would overwrite the full DB history.
+  if (Store.get('isSyncing')) {
+    console.log('[Chat] ⏳ Database sync in progress - skipping incoming page messages to prevent data loss');
+    return;
+  }
+  
+  // Get existing stored messages - check BOTH storedChat AND current messages display
+  // This provides defense even if storedChat was temporarily cleared during chat switch
   const storedChat = Store.get('storedChat') || {};
-  const existingMessages = storedChat.messages || [];
+  const storedMessages = storedChat.messages || [];
+  const currentMessages = Store.get('messages') || [];
+  const existingMessages = storedMessages.length >= currentMessages.length ? storedMessages : currentMessages;
   const hasLoadedFromDatabase = Store.get('hasLoadedFromDatabase');
   
   console.log('[Chat] handleIncomingMessages: received', scannedMessages.length, 'messages from page');
-  console.log('[Chat] Currently have', existingMessages.length, 'messages stored');
+  console.log('[Chat] Currently have', existingMessages.length, 'messages stored (db:', storedMessages.length, 'display:', currentMessages.length, ')');
   console.log('[Chat] Loaded from database?', hasLoadedFromDatabase);
   
   // CRITICAL: Don't replace if we have MORE messages stored
@@ -536,6 +548,11 @@ export const detectAndSyncChat = async () => {
   
   if (isNewChat) {
     // Switching to a different chat
+    // CRITICAL: Set syncing flag BEFORE clearing data to prevent race condition
+    // Content script's autoLoadChat fires at 500ms with only ~20 DOM messages.
+    // Without this flag, handleIncomingMessages would overwrite DB history.
+    Store.set('isSyncing', true);
+    
     // IMPORTANT: Force save current chat before switching
     if (currentFullId) {
       await forceFlushPendingSaves();
@@ -548,6 +565,7 @@ export const detectAndSyncChat = async () => {
     console.log(`🔄 New ${subscriberData.platform} chat detected (${subscriberData.id}) - operation v${newOpVersion}`);
     
     // Reset Store state (but NOT progress - that's in ProgressManager now)
+    // Note: Store.reset() does NOT clear isSyncing, so our guard stays active
     Store.reset();
     
     // CRITICAL: Clear stored chat to prevent cross-chat contamination
