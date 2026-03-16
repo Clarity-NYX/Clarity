@@ -66,7 +66,12 @@ function extractMessageData(el, index) {
     'img[src*="cdn"]'
   );
   if (thumbEl) {
-    mediaThumbnail = thumbEl.src || thumbEl.getAttribute('data-src');
+    // Convert to base64 data URL so sidepanel can display it (CDN URLs need auth cookies)
+    mediaThumbnail = imgToBase64(thumbEl);
+    if (!mediaThumbnail) {
+      // Fallback to original URL
+      mediaThumbnail = thumbEl.src || thumbEl.getAttribute('data-src');
+    }
   }
   
   if (isVideo) {
@@ -507,4 +512,35 @@ export function getCurrentMessages() {
 export function setMessages(newMessages) {
   messages = newMessages;
   lastMessageCount = newMessages.length;
+}
+
+// Convert an already-loaded img element to a small base64 data URL
+// This allows the sidepanel to display thumbnails without needing OnlyFans CDN auth
+function imgToBase64(imgEl) {
+  try {
+    if (!imgEl || !imgEl.naturalWidth || !imgEl.complete) return null;
+    
+    // Create a small canvas for the thumbnail (max 120px)
+    const maxSize = 120;
+    let width = imgEl.naturalWidth;
+    let height = imgEl.naturalHeight;
+    
+    if (width > maxSize || height > maxSize) {
+      const ratio = Math.min(maxSize / width, maxSize / height);
+      width = Math.round(width * ratio);
+      height = Math.round(height * ratio);
+    }
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imgEl, 0, 0, width, height);
+    
+    return canvas.toDataURL('image/jpeg', 0.6);
+  } catch (e) {
+    // Canvas tainted by cross-origin image - can't convert
+    return null;
+  }
 }
