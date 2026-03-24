@@ -124,6 +124,28 @@ function extractMessageData(el, index) {
     paymentStatus = 'unpaid';
   }
   
+  // ── Detect tips ──
+  let tipAmount = null;
+  const tipEl = el.querySelector('.b-chat__message__tip-text, [at-attr="msg_tip"]');
+  if (tipEl) {
+    const tipText = tipEl.innerText || tipEl.textContent || '';
+    const tipMatch = tipText.match(/\$[\d,.]+/);
+    if (tipMatch) {
+      tipAmount = tipMatch[0];
+    }
+  }
+  // Also check for tip in parent wrapper (tip text can be in different spots)
+  if (!tipAmount) {
+    const tipWrapper = el.querySelector('[class*="tip-text"], [class*="tip_text"]');
+    if (tipWrapper) {
+      const tipText = tipWrapper.innerText || tipWrapper.textContent || '';
+      const tipMatch = tipText.match(/\$[\d,.]+/);
+      if (tipMatch) {
+        tipAmount = tipMatch[0];
+      }
+    }
+  }
+  
   // ── Extract text ──
   let text = '';
   const textEl = el.querySelector(SELECTORS.messageText);
@@ -177,7 +199,8 @@ function extractMessageData(el, index) {
     mediaUrl,                   // Direct media URL if available
     mediaThumbnail,             // Thumbnail image URL (for video frames too)
     paymentStatus,              // 'paid', 'unpaid', or null
-    paymentAmount               // '$25' etc, or null
+    paymentAmount,              // '$25' etc, or null
+    tipAmount                   // '$80.00' etc, or null
   };
 }
 
