@@ -244,46 +244,47 @@ async function syncFromServer() {
     const serverVaults = Array.isArray(data.vaults) ? data.vaults : [];
     const serverSent = (data.sent && typeof data.sent === 'object') ? data.sent : {};
 
-    // Merge strategy: Server wins for pool & vaults (authoritative source)
-    // but merge in any local-only items not yet synced
-    if (serverPool.length > 0 || imagePool.length === 0) {
-      // Merge: keep server items, add any local items with IDs not in server
-      const serverIds = new Set(serverPool.map(i => i.id));
-      const localOnly = imagePool.filter(i => !serverIds.has(i.id));
-      imagePool = [...serverPool, ...localOnly];
-      savePool();
-      if (localOnly.length > 0) {
-        console.log(`[ImagePool] 🔄 Merged ${localOnly.length} local-only items into server pool`);
-        schedulePoolSync(); // Push merged result back
-      }
+    // Merge strategy: Server data + any local-only items not yet synced
+    // Always run merge — covers both directions:
+    //   Server has data → pull to local
+    //   Local has data not on server → push to server (first sync)
+    const serverIds = new Set(serverPool.map(i => i.id));
+    const localOnlyPool = imagePool.filter(i => !serverIds.has(i.id));
+    imagePool = [...serverPool, ...localOnlyPool];
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
+    updateStats();
+    if (localOnlyPool.length > 0) {
+      console.log(`[ImagePool] 🔄 Pushing ${localOnlyPool.length} local-only items to server`);
+      pushPoolToServer(); // Immediate push (not debounced) — first sync is critical
     }
 
-    if (serverVaults.length > 0 || vaults.length <= 1) {
-      // Merge vaults similarly
-      const serverVaultIds = new Set(serverVaults.map(v => v.id));
-      const localOnlyVaults = vaults.filter(v => v.id !== 'default' && !serverVaultIds.has(v.id));
-      vaults = [...serverVaults, ...localOnlyVaults];
-      // Ensure default exists
-      if (!vaults.find(v => v.id === 'default')) {
-        vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
-      }
-      saveVaults();
-      if (localOnlyVaults.length > 0) {
-        scheduleVaultsSync();
-      }
+    // Merge vaults
+    const serverVaultIds = new Set(serverVaults.map(v => v.id));
+    const localOnlyVaults = vaults.filter(v => v.id !== 'default' && !serverVaultIds.has(v.id));
+    vaults = [...serverVaults, ...localOnlyVaults];
+    if (!vaults.find(v => v.id === 'default')) {
+      vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
+    }
+    try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
+    if (localOnlyVaults.length > 0) {
+      pushVaultsToServer(); // Immediate push
     }
 
-    if (Object.keys(serverSent).length > 0 || Object.keys(sentImagesMap).length === 0) {
-      // Merge sent maps: union of both
-      for (const [subId, ids] of Object.entries(serverSent)) {
-        if (!sentImagesMap[subId]) {
-          sentImagesMap[subId] = ids;
-        } else {
-          const merged = new Set([...sentImagesMap[subId], ...ids]);
-          sentImagesMap[subId] = [...merged];
-        }
+    // Merge sent maps: union of both directions
+    for (const [subId, ids] of Object.entries(serverSent)) {
+      if (!sentImagesMap[subId]) {
+        sentImagesMap[subId] = ids;
+      } else {
+        const merged = new Set([...sentImagesMap[subId], ...ids]);
+        sentImagesMap[subId] = [...merged];
       }
-      saveSentImagesMap();
+    }
+    try { localStorage.setItem(SENT_IMAGES_KEY, JSON.stringify(sentImagesMap)); } catch (_) {}
+    // Push sent map if local has data the server doesn't
+    const localSentKeys = Object.keys(sentImagesMap);
+    const serverSentKeys = Object.keys(serverSent);
+    if (localSentKeys.length > serverSentKeys.length) {
+      pushSentToServer();
     }
 
     _cloudSynced = true;
