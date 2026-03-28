@@ -236,13 +236,20 @@ function _onVisibilityChange() {
   }
 }
 
-// Pull all vault data from server — called once on init (or re-called if pool was empty)
+// Pull all vault data from server — CLOUD-FIRST: Firebase is the authoritative source.
+// 1. Fetch server state
+// 2. Push any local-only items to server
+// 3. Re-fetch server state to confirm round-trip
+// 4. Replace local pool with verified server data
+// This guarantees: what you see = what's on Firebase = what other devices see
 async function syncFromServer() {
   // Allow re-sync if first sync returned empty pool (other device may not have pushed yet)
   if (_cloudSynced && imagePool.length > 0) return;
 
   try {
-    console.log(`[ImagePool] ☁️ Starting cloud sync... (local pool: ${imagePool.length} items)`);
+    console.log(`[ImagePool] ☁️ Cloud-first sync starting... (local cache: ${imagePool.length} items)`);
+
+    // ── Step 1: Fetch current server state ──
     const data = await apiRequest('/storage/vault');
     if (!data.success) {
       console.warn('[ImagePool] ⚠️ Server returned error for vault fetch');
@@ -253,50 +260,94 @@ async function syncFromServer() {
     const serverVaults = Array.isArray(data.vaults) ? data.vaults : [];
     const serverSent = (data.sent && typeof data.sent === 'object') ? data.sent : {};
 
-    console.log(`[ImagePool] ☁️ Server data: ${serverPool.length} pool items, ${serverVaults.length} vaults, ${Object.keys(serverSent).length} sent tracks`);
+    console.log(`[ImagePool] ☁️ Server has: ${serverPool.length} pool items, ${serverVaults.length} vaults, ${Object.keys(serverSent).length} sent tracks`);
 
-    // Merge strategy: Server data + any local-only items not yet synced
-    // Always run merge — covers both directions:
-    //   Server has data → pull to local
-    //   Local has data not on server → push to server (first sync)
+    // ── Step 2: Push any local-only items to server (first-time sync) ──
     const serverIds = new Set(serverPool.map(i => i.id));
     const localOnlyPool = imagePool.filter(i => !serverIds.has(i.id));
-    imagePool = [...serverPool, ...localOnlyPool];
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
-    updateStats();
+    let needsReFetch = false;
+
     if (localOnlyPool.length > 0) {
       console.log(`[ImagePool] 🔄 Pushing ${localOnlyPool.length} local-only items to server...`);
-      await pushPoolToServer(); // AWAIT — must complete before proceeding
-      console.log(`[ImagePool] ✅ Local items pushed to server successfully`);
+      // Temporarily merge for push (server items + local-only)
+      imagePool = [...serverPool, ...localOnlyPool];
+      await pushPoolToServer();
+      console.log(`[ImagePool] ✅ Local items pushed to server`);
+      needsReFetch = true;
     }
 
-    // Merge vaults
+    // Push local-only vaults
     const serverVaultIds = new Set(serverVaults.map(v => v.id));
     const localOnlyVaults = vaults.filter(v => v.id !== 'default' && !serverVaultIds.has(v.id));
-    vaults = [...serverVaults, ...localOnlyVaults];
+    if (localOnlyVaults.length > 0) {
+      vaults = [...serverVaults, ...localOnlyVaults];
+      if (!vaults.find(v => v.id === 'default')) {
+        vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
+      }
+      await pushVaultsToServer();
+      needsReFetch = true;
+    }
+
+    // Push local-only sent tracking
+    const localSentKeys = Object.keys(sentImagesMap);
+    const serverSentKeys = Object.keys(serverSent);
+    let mergedSent = { ...serverSent };
+    let sentChanged = false;
+    for (const [subId, ids] of Object.entries(sentImagesMap)) {
+      if (!mergedSent[subId]) {
+        mergedSent[subId] = ids;
+        sentChanged = true;
+      } else {
+        const merged = new Set([...mergedSent[subId], ...ids]);
+        if (merged.size > mergedSent[subId].length) {
+          mergedSent[subId] = [...merged];
+          sentChanged = true;
+        }
+      }
+    }
+    if (sentChanged) {
+      sentImagesMap = mergedSent;
+      await pushSentToServer();
+      needsReFetch = true;
+    }
+
+    // ── Step 3: Re-fetch from server to get authoritative state ──
+    // This confirms the round-trip: what's on Firebase is what we display
+    let finalPool, finalVaults, finalSent;
+
+    if (needsReFetch) {
+      console.log(`[ImagePool] 🔄 Re-fetching from server to verify round-trip...`);
+      const verifyData = await apiRequest('/storage/vault');
+      if (verifyData.success) {
+        finalPool = Array.isArray(verifyData.pool) ? verifyData.pool : serverPool;
+        finalVaults = Array.isArray(verifyData.vaults) ? verifyData.vaults : serverVaults;
+        finalSent = (verifyData.sent && typeof verifyData.sent === 'object') ? verifyData.sent : mergedSent;
+        console.log(`[ImagePool] ✅ Verified: server has ${finalPool.length} pool items after push`);
+      } else {
+        finalPool = [...serverPool, ...localOnlyPool];
+        finalVaults = [...serverVaults, ...localOnlyVaults];
+        finalSent = mergedSent;
+      }
+    } else {
+      // No local-only items — server data IS the authoritative state
+      finalPool = serverPool;
+      finalVaults = serverVaults;
+      finalSent = serverSent;
+    }
+
+    // ── Step 4: Replace local state with server-verified data ──
+    imagePool = finalPool;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
+    updateStats();
+
+    vaults = finalVaults;
     if (!vaults.find(v => v.id === 'default')) {
       vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
     }
     try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
-    if (localOnlyVaults.length > 0) {
-      await pushVaultsToServer();
-    }
 
-    // Merge sent maps: union of both directions
-    for (const [subId, ids] of Object.entries(serverSent)) {
-      if (!sentImagesMap[subId]) {
-        sentImagesMap[subId] = ids;
-      } else {
-        const merged = new Set([...sentImagesMap[subId], ...ids]);
-        sentImagesMap[subId] = [...merged];
-      }
-    }
+    sentImagesMap = finalSent;
     try { localStorage.setItem(SENT_IMAGES_KEY, JSON.stringify(sentImagesMap)); } catch (_) {}
-    const localSentKeys = Object.keys(sentImagesMap);
-    const serverSentKeys = Object.keys(serverSent);
-    if (localSentKeys.length > serverSentKeys.length) {
-      await pushSentToServer();
-    }
 
     _cloudSynced = true;
     _lastSyncTime = Date.now();
@@ -313,10 +364,10 @@ async function syncFromServer() {
       }
     } catch (_) {} // Non-critical
 
-    console.log(`[ImagePool] ☁️ Cloud sync complete: ${imagePool.length} items, ${vaults.length} vaults, ${Object.keys(sentImagesMap).length} subscriber tracks`);
+    console.log(`[ImagePool] ☁️ Cloud-first sync complete: ${imagePool.length} items (from Firebase), ${vaults.length} vaults, ${Object.keys(sentImagesMap).length} sent tracks`);
 
     // Refresh download URLs — signed URLs expire after 4h,
-    // so items synced from server need fresh URLs on this device
+    // so items from server need fresh URLs on this device
     if (imagePool.length > 0) {
       await refreshDownloadURLs();
     }
