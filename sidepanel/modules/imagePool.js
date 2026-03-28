@@ -1,9 +1,10 @@
 // Media Pool Module
 // Manages a pool of images AND videos for auto-responses (Telegram & OnlyFans)
 // Media files are stored in Firebase Storage (via signed URLs)
-// Only metadata + downloadURL are kept in localStorage
+// Metadata synced to Firestore for cross-device access; localStorage as fast cache
 
 import { storeImage as uploadToStorage, deleteImage as deleteFromStorage } from './scripts/imageStorage.js';
+import { apiRequest } from '../utils/api.js';
 
 const STORAGE_KEY = 'clarity_image_pool';
 const VAULTS_KEY = 'clarity_vaults';
@@ -15,6 +16,127 @@ let pendingMediaType = 'image'; // 'image' or 'video'
 let sentImagesMap = {}; // { subscriberId: [mediaId1, mediaId2, ...] }
 let _poolLoaded = false;
 let _vaultsLoaded = false;
+let _cloudSynced = false; // Whether we've pulled from server this session
+
+// ============================================================
+// CLOUD SYNC — Debounced push to Firestore via server API
+// ============================================================
+
+let _poolSyncTimer = null;
+let _vaultsSyncTimer = null;
+let _sentSyncTimer = null;
+const SYNC_DEBOUNCE_MS = 2000; // 2s debounce for server saves
+
+function schedulePoolSync() {
+  clearTimeout(_poolSyncTimer);
+  _poolSyncTimer = setTimeout(() => pushPoolToServer(), SYNC_DEBOUNCE_MS);
+}
+
+function scheduleVaultsSync() {
+  clearTimeout(_vaultsSyncTimer);
+  _vaultsSyncTimer = setTimeout(() => pushVaultsToServer(), SYNC_DEBOUNCE_MS);
+}
+
+function scheduleSentSync() {
+  clearTimeout(_sentSyncTimer);
+  _sentSyncTimer = setTimeout(() => pushSentToServer(), SYNC_DEBOUNCE_MS);
+}
+
+async function pushPoolToServer() {
+  try {
+    await apiRequest('/storage/vault/pool', {
+      method: 'PUT',
+      body: JSON.stringify({ items: imagePool })
+    });
+    console.log('[ImagePool] ☁️ Pool synced to server:', imagePool.length, 'items');
+  } catch (err) {
+    console.warn('[ImagePool] ⚠️ Pool server sync failed (will retry):', err.message);
+  }
+}
+
+async function pushVaultsToServer() {
+  try {
+    await apiRequest('/storage/vault/vaults', {
+      method: 'PUT',
+      body: JSON.stringify({ vaults })
+    });
+    console.log('[ImagePool] ☁️ Vaults synced to server:', vaults.length, 'vaults');
+  } catch (err) {
+    console.warn('[ImagePool] ⚠️ Vaults server sync failed:', err.message);
+  }
+}
+
+async function pushSentToServer() {
+  try {
+    await apiRequest('/storage/vault/sent', {
+      method: 'PUT',
+      body: JSON.stringify({ map: sentImagesMap })
+    });
+    console.log('[ImagePool] ☁️ Sent map synced to server:', Object.keys(sentImagesMap).length, 'subscribers');
+  } catch (err) {
+    console.warn('[ImagePool] ⚠️ Sent map server sync failed:', err.message);
+  }
+}
+
+// Pull all vault data from server — called once on init
+async function syncFromServer() {
+  if (_cloudSynced) return;
+  try {
+    const data = await apiRequest('/storage/vault');
+    if (!data.success) return;
+
+    const serverPool = Array.isArray(data.pool) ? data.pool : [];
+    const serverVaults = Array.isArray(data.vaults) ? data.vaults : [];
+    const serverSent = (data.sent && typeof data.sent === 'object') ? data.sent : {};
+
+    // Merge strategy: Server wins for pool & vaults (authoritative source)
+    // but merge in any local-only items not yet synced
+    if (serverPool.length > 0 || imagePool.length === 0) {
+      // Merge: keep server items, add any local items with IDs not in server
+      const serverIds = new Set(serverPool.map(i => i.id));
+      const localOnly = imagePool.filter(i => !serverIds.has(i.id));
+      imagePool = [...serverPool, ...localOnly];
+      savePool();
+      if (localOnly.length > 0) {
+        console.log(`[ImagePool] 🔄 Merged ${localOnly.length} local-only items into server pool`);
+        schedulePoolSync(); // Push merged result back
+      }
+    }
+
+    if (serverVaults.length > 0 || vaults.length <= 1) {
+      // Merge vaults similarly
+      const serverVaultIds = new Set(serverVaults.map(v => v.id));
+      const localOnlyVaults = vaults.filter(v => v.id !== 'default' && !serverVaultIds.has(v.id));
+      vaults = [...serverVaults, ...localOnlyVaults];
+      // Ensure default exists
+      if (!vaults.find(v => v.id === 'default')) {
+        vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
+      }
+      saveVaults();
+      if (localOnlyVaults.length > 0) {
+        scheduleVaultsSync();
+      }
+    }
+
+    if (Object.keys(serverSent).length > 0 || Object.keys(sentImagesMap).length === 0) {
+      // Merge sent maps: union of both
+      for (const [subId, ids] of Object.entries(serverSent)) {
+        if (!sentImagesMap[subId]) {
+          sentImagesMap[subId] = ids;
+        } else {
+          const merged = new Set([...sentImagesMap[subId], ...ids]);
+          sentImagesMap[subId] = [...merged];
+        }
+      }
+      saveSentImagesMap();
+    }
+
+    _cloudSynced = true;
+    console.log(`[ImagePool] ☁️ Cloud sync complete: ${imagePool.length} items, ${vaults.length} vaults, ${Object.keys(sentImagesMap).length} subscriber tracks`);
+  } catch (err) {
+    console.warn('[ImagePool] ⚠️ Cloud sync failed (using local cache):', err.message);
+  }
+}
 
 // Supported media types
 const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -29,6 +151,11 @@ export function init() {
   setupEventListeners();
   renderPool();
   console.log('[ImagePool] Initialized with', imagePool.length, 'images,', vaults.length, 'vaults');
+
+  // Pull from server (async, non-blocking) — merges cloud data with local cache
+  syncFromServer().then(() => {
+    renderPool(); // Re-render with merged data
+  }).catch(() => {}); // Errors already logged inside syncFromServer
 }
 
 // Load pool from localStorage
@@ -103,20 +230,22 @@ function pruneSentImagesMap(maxPerSubscriber = 200, maxSubscribers = 500) {
   }
 }
 
-// Save sent images tracking to localStorage
+// Save sent images tracking to localStorage + schedule cloud sync
 function saveSentImagesMap() {
   try {
     localStorage.setItem(SENT_IMAGES_KEY, JSON.stringify(sentImagesMap));
+    scheduleSentSync();
   } catch (e) {
     console.error('[ImagePool] Error saving sent images map:', e);
   }
 }
 
-// Save pool to localStorage
+// Save pool to localStorage + schedule cloud sync
 function savePool() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool));
     updateStats();
+    schedulePoolSync();
   } catch (e) {
     console.error('[ImagePool] Error saving pool:', e);
     throw e; // Re-throw so callers can detect save failures (e.g. QuotaExceededError)
@@ -677,7 +806,7 @@ function loadVaults() {
 }
 
 function saveVaults() {
-  try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
+  try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); scheduleVaultsSync(); } catch (_) {}
 }
 
 export function getVaults() { ensureLoaded(); return [...vaults]; }
