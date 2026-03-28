@@ -14,6 +14,18 @@ import { showChatListView, showConversationView } from './chatList.js';
 // Track message count for auto-scan
 let lastAutoScanMessageCount = 0;
 
+// Verification state
+let verificationRetries = 0;
+const MAX_VERIFICATION_RETRIES = 1; // PERFORMANCE: Reduced from 3 — one retry is sufficient
+const VERIFY_TAIL_COUNT = 8; // Compare last N messages
+let pendingVerifyTimer = null; // Debounce timer for incoming message verification
+let lastVerificationTime = 0; // PERFORMANCE: Cooldown to prevent excessive verification
+const VERIFY_COOLDOWN_MS = 30000; // 30 seconds between verifications
+
+// PERFORMANCE: Debounce for detectAndSyncChat — tab events fire in rapid bursts
+let _detectSyncDebounceTimer = null;
+const DETECT_SYNC_DEBOUNCE_MS = 500;
+
 // Handle incoming messages
 // Smart handling to prevent data loss
 export const handleIncomingMessages = (scannedMessages) => {
@@ -41,33 +53,37 @@ export const handleIncomingMessages = (scannedMessages) => {
   console.log('[Chat] Currently have', existingMessages.length, 'messages stored (db:', storedMessages.length, 'display:', currentMessages.length, ')');
   console.log('[Chat] Loaded from database?', hasLoadedFromDatabase);
   
-  // CRITICAL: Don't replace if we have MORE messages stored
-  // OnlyFans only shows recent messages until you scroll up
-  if (existingMessages.length > scannedMessages.length) {
-    console.log('[Chat] ⚠️ WARNING: Page has fewer messages than stored - NOT saving to prevent data loss');
-    console.log('[Chat] Keeping existing', existingMessages.length, 'messages in database AND display');
-    
-    // KEEP displaying the full history from database!
-    // Don't let partial page data override our complete history
-    console.log('[Chat] Displaying full history:', existingMessages.length, 'messages');
-    Store.set('messages', existingMessages);
-    renderChatMessages();
-    
-    // Update the auto-scan counter based on full history
-    lastAutoScanMessageCount = existingMessages.length;
-    
-    // Don't save partial data to database!
-    return;
+  // ALWAYS merge live page messages with DB history
+  // Live messages are ground truth for CURRENT state; DB provides HISTORICAL messages
+  // OnlyFans only shows recent visible messages, so page always has fewer than DB — that's normal
+  let finalMessages;
+  
+  if (existingMessages.length > 0 && scannedMessages.length > 0) {
+    // Merge: prepend historical DB messages + use live page as current truth
+    finalMessages = mergeMessagesWithHistory(scannedMessages, existingMessages);
+    console.log('[Chat] ✅ Merged live+stored:', finalMessages.length, 'total messages');
+  } else if (scannedMessages.length > 0) {
+    finalMessages = scannedMessages;
+    console.log('[Chat] Using scanned messages only:', finalMessages.length);
+  } else {
+    finalMessages = existingMessages;
+    console.log('[Chat] No scanned messages, keeping existing:', finalMessages.length);
   }
   
-  // Only save if we have equal or more messages
-  console.log('[Chat] Page has equal/more messages - safe to update');
-  Store.set('messages', scannedMessages);
-  renderChatMessages();
+  // Only re-render if messages actually changed (Store tracks fingerprint)
+  const versionBefore = Store.get('messageVersion');
+  Store.set('messages', finalMessages);
+  const versionAfter = Store.get('messageVersion');
   
-  // Save to database if we have a profile
-  if (currentProfile && currentSubscriberId && scannedMessages.length > 0) {
-    saveFullChatReplacement(scannedMessages);
+  if (versionAfter !== versionBefore) {
+    renderChatMessages();
+    
+    // Save merged result to database if we have a profile
+    if (currentProfile && currentSubscriberId && finalMessages.length > 0) {
+      saveFullChatReplacement(finalMessages);
+    }
+  } else {
+    console.log('[Chat] Messages unchanged — skipping re-render and save');
   }
   
   // Check if we should auto-scan notes (every 10-15 new messages)
@@ -81,6 +97,85 @@ export const handleIncomingMessages = (scannedMessages) => {
       autoScanIfEnabled();
     }, 1000);
   }
+  
+  // Debounced verification after incoming messages settle
+  // This catches scrambling caused by scroll-up loading older messages
+  if (pendingVerifyTimer) clearTimeout(pendingVerifyTimer);
+  pendingVerifyTimer = setTimeout(() => {
+    pendingVerifyTimer = null;
+    if (!Store.get('isSyncing') && Store.get('currentSubscriberId')) {
+      console.log('[Chat] Running debounced post-incoming verification...');
+      verifyAndCorrectChat();
+    }
+  }, 4000); // Wait 4s after last incoming batch to let scrolling settle
+};
+
+// ============================================================
+// MESSAGE MERGE - Combine live page messages with DB history
+// ============================================================
+
+// Get a parseable timestamp from a message (tries all available fields)
+const getMsgTimestamp = (msg) => {
+  // Priority 1: ISO datetime from OnlyFans DOM (most reliable)
+  if (msg.datetime) {
+    const ts = new Date(msg.datetime).getTime();
+    if (!isNaN(ts) && ts > 0) return ts;
+  }
+  // Priority 2: Explicit timestamp field
+  if (msg.timestamp) {
+    const ts = typeof msg.timestamp === 'number' ? msg.timestamp : new Date(msg.timestamp).getTime();
+    if (!isNaN(ts) && ts > 0) return ts;
+  }
+  // Priority 3: lastMessageAt or similar
+  if (msg.lastMessageAt) {
+    const ts = typeof msg.lastMessageAt === 'number' ? msg.lastMessageAt : new Date(msg.lastMessageAt).getTime();
+    if (!isNaN(ts) && ts > 0) return ts;
+  }
+  // No parseable timestamp
+  return 0;
+};
+
+// Create a unique key for a message (for deduplication during merge)
+const createMessageKey = (msg) => {
+  const sender = msg.isFromMe ? 'me' : 'them';
+  const text = (msg.text || '').substring(0, 50).toLowerCase().trim();
+  
+  // Use datetime if available for precision
+  const ts = getMsgTimestamp(msg);
+  const roundedTs = ts > 0 ? Math.floor(ts / 60000) * 60000 : 0; // Round to nearest minute
+  
+  // If we have a real OnlyFans ID, use that (most reliable)
+  if (msg.id && !msg.id.startsWith('temp-')) {
+    return `id:${msg.id}`;
+  }
+  
+  // If we have a good timestamp, use sender+text+time
+  if (roundedTs > 0) {
+    return `${sender}:${text}:${roundedTs}`;
+  }
+  
+  // Fallback: sender + full text (less reliable but still useful)
+  return `${sender}:${text}`;
+};
+
+// Sort merged messages by timestamp ONLY (never by 'order' across sources)
+// 'order' values from different scrapes/sources are in different index spaces
+const sortByTimestampOnly = (messages) => {
+  messages.sort((a, b) => {
+    const tsA = getMsgTimestamp(a);
+    const tsB = getMsgTimestamp(b);
+    if (tsA > 0 && tsB > 0) return tsA - tsB;
+    // If only one has a timestamp, the one without stays in place
+    return 0;
+  });
+};
+
+// Re-index the 'order' field sequentially after merging
+// This ensures a clean 0, 1, 2... sequence regardless of source
+const reindexOrder = (messages) => {
+  messages.forEach((msg, i) => {
+    msg.order = i;
+  });
 };
 
 // Merge live page messages with database history (no duplicates)
@@ -95,59 +190,313 @@ const mergeMessagesWithHistory = (liveMessages, dbMessages) => {
   
   console.log(`[Chat] Merging ${liveMessages.length} live messages with ${dbMessages.length} DB messages`);
   
-  // Create a Set of unique message identifiers from live messages
-  // Use a combination of sender + text (first 50 chars) + approximate timestamp
+  // REPAIR: Sort DB messages by timestamp to fix any previously corrupted ordering
+  // Previous merges may have scrambled the order; timestamps are the source of truth
+  const dbWithTs = dbMessages.filter(m => getMsgTimestamp(m) > 0).length;
+  if (dbWithTs > dbMessages.length * 0.5) {
+    // Most DB messages have timestamps — safe to sort-repair
+    dbMessages = [...dbMessages].sort((a, b) => {
+      const tsA = getMsgTimestamp(a);
+      const tsB = getMsgTimestamp(b);
+      if (tsA > 0 && tsB > 0) return tsA - tsB;
+      // Keep non-timestamped messages in their relative position
+      if (tsA > 0) return -1; // Timestamped goes before non-timestamped
+      if (tsB > 0) return 1;
+      return 0;
+    });
+    console.log(`[Chat] Repaired DB message order (${dbWithTs}/${dbMessages.length} have timestamps)`);
+  }
+  
+  // Build a Set of live message keys for dedup
   const liveMessageKeys = new Set();
   liveMessages.forEach(msg => {
-    const key = createMessageKey(msg);
-    liveMessageKeys.add(key);
+    liveMessageKeys.add(createMessageKey(msg));
   });
   
-  // Find oldest live message timestamp to know what's "historical"
-  const oldestLiveTimestamp = liveMessages.reduce((oldest, msg) => {
-    const ts = new Date(msg.timestamp || msg.time || 0).getTime();
-    return ts > 0 && ts < oldest ? ts : oldest;
-  }, Date.now());
-  
-  console.log(`[Chat] Oldest live message timestamp: ${new Date(oldestLiveTimestamp).toISOString()}`);
-  
-  // Get historical messages from DB that are older than oldest live message
-  // AND are not duplicates
-  const historicalMessages = dbMessages.filter(msg => {
-    const msgTimestamp = new Date(msg.timestamp || msg.time || 0).getTime();
-    const key = createMessageKey(msg);
-    
-    // Only include if: older than oldest live message AND not a duplicate
-    const isOlder = msgTimestamp < oldestLiveTimestamp;
-    const isDuplicate = liveMessageKeys.has(key);
-    
-    return isOlder && !isDuplicate;
+  // Find oldest live message timestamp
+  let oldestLiveTs = Infinity;
+  liveMessages.forEach(msg => {
+    const ts = getMsgTimestamp(msg);
+    if (ts > 0 && ts < oldestLiveTs) oldestLiveTs = ts;
   });
+  
+  // If no parseable timestamps on live messages, use order-based merge instead
+  const hasTimestamps = oldestLiveTs < Infinity;
+  
+  if (hasTimestamps) {
+    console.log(`[Chat] Oldest live message: ${new Date(oldestLiveTs).toISOString()}`);
+  } else {
+    console.log(`[Chat] No parseable timestamps on live messages — using order-based merge`);
+  }
+  
+  // Get historical DB messages that are NOT duplicates of live messages
+  let historicalMessages;
+  
+  if (hasTimestamps) {
+    // Timestamp-based: keep DB messages older than oldest live message
+    historicalMessages = dbMessages.filter(msg => {
+      const key = createMessageKey(msg);
+      if (liveMessageKeys.has(key)) return false; // Duplicate
+      
+      const ts = getMsgTimestamp(msg);
+      // If DB message has a timestamp, it must be older than oldest live
+      // If DB message has NO timestamp, include it only if it has a lower order
+      if (ts > 0) return ts < oldestLiveTs;
+      // No timestamp: include if it's in the first part of DB (likely historical)
+      return true; // Include — better to have duplicates than lose history
+    });
+  } else {
+    // No timestamps available — use text-based dedup only
+    // Keep all DB messages that aren't exact text+sender matches to live messages
+    historicalMessages = dbMessages.filter(msg => {
+      const key = createMessageKey(msg);
+      return !liveMessageKeys.has(key);
+    });
+  }
   
   console.log(`[Chat] Found ${historicalMessages.length} historical messages to prepend`);
   
-  // Merge: historical (oldest) + live (newest)
+  // CRITICAL SAFETY: If historical count is suspiciously low compared to DB,
+  // it might mean dedup is too aggressive. Prefer DB count.
+  if (dbMessages.length > 50 && historicalMessages.length < dbMessages.length * 0.3) {
+    console.warn(`[Chat] ⚠️ Only ${historicalMessages.length}/${dbMessages.length} DB messages survived merge — suspicious!`);
+    console.warn(`[Chat] ⚠️ Falling back to DB-first strategy to protect history`);
+    
+    // Safe strategy: use ALL DB messages + append any truly new live messages
+    const dbKeys = new Set(dbMessages.map(m => createMessageKey(m)));
+    const newLiveOnly = liveMessages.filter(m => !dbKeys.has(createMessageKey(m)));
+    
+    console.log(`[Chat] DB-first: ${dbMessages.length} DB + ${newLiveOnly.length} new live messages`);
+    const merged = [...dbMessages, ...newLiveOnly];
+    
+    // ONLY sort by timestamp — never by 'order' across sources
+    // 'order' values from different scrapes are in different index spaces
+    // and mixing them causes scrambled message ordering
+    sortByTimestampOnly(merged);
+    
+    // Re-index order field so it's sequential after merge
+    reindexOrder(merged);
+    
+    console.log(`[Chat] Final merged count: ${merged.length} messages`);
+    return merged;
+  }
+  
+  // Normal merge: historical (oldest) first, then live (newest)
+  // DO NOT sort — the concat order IS already correct:
+  //   - Historical messages are filtered to be OLDER than oldest live message
+  //   - Within each group, messages are already in chronological order
+  //     (DB messages in their stored array order, live messages in DOM order)
+  //   - Sorting would BREAK ordering when some messages lack timestamps
   const merged = [...historicalMessages, ...liveMessages];
   
-  // Sort by timestamp (oldest first)
-  merged.sort((a, b) => {
-    const tsA = new Date(a.timestamp || a.time || 0).getTime();
-    const tsB = new Date(b.timestamp || b.time || 0).getTime();
-    return tsA - tsB;
-  });
+  // Re-index order field so it's sequential after merge
+  reindexOrder(merged);
   
   console.log(`[Chat] Final merged count: ${merged.length} messages`);
   return merged;
 };
 
-// Create a unique key for a message (for deduplication)
-const createMessageKey = (msg) => {
-  const sender = msg.sender || msg.from || 'unknown';
-  const text = (msg.text || msg.content || '').substring(0, 50).toLowerCase().trim();
-  // Round timestamp to nearest minute to handle slight variations
-  const ts = new Date(msg.timestamp || msg.time || 0).getTime();
-  const roundedTs = Math.floor(ts / 60000) * 60000;
-  return `${sender}:${text}:${roundedTs}`;
+// ============================================================
+// VERIFICATION SYSTEM - Cross-check displayed msgs vs live page
+// ============================================================
+
+// Create a lightweight fingerprint for a message (for comparison)
+const msgFingerprint = (msg) => {
+  const sender = msg.isFromMe ? 'me' : 'them';
+  const text = (msg.text || '').substring(0, 40).toLowerCase().trim();
+  return `${sender}|${text}`;
+};
+
+// Compare tail of displayed messages against live page messages
+// Returns { match: true/false, details: string }
+const compareTails = (displayedMessages, liveMessages) => {
+  if (!liveMessages || liveMessages.length === 0) {
+    return { match: true, details: 'No live messages to compare' };
+  }
+  if (!displayedMessages || displayedMessages.length === 0) {
+    return { match: false, details: 'No displayed messages but live page has messages' };
+  }
+  
+  // Get the last N messages from live page (these are the most recent visible ones)
+  const liveCount = Math.min(VERIFY_TAIL_COUNT, liveMessages.length);
+  const liveTail = liveMessages.slice(-liveCount);
+  const liveTailFingerprints = liveTail.map(msgFingerprint);
+  
+  // Get the last N messages from displayed (should match live tail)
+  const displayedTail = displayedMessages.slice(-liveCount);
+  const displayedTailFingerprints = displayedTail.map(msgFingerprint);
+  
+  // Compare: every live tail message should appear in displayed tail
+  let matchCount = 0;
+  let mismatchDetails = [];
+  
+  for (let i = 0; i < liveTailFingerprints.length; i++) {
+    if (i < displayedTailFingerprints.length && liveTailFingerprints[i] === displayedTailFingerprints[i]) {
+      matchCount++;
+    } else {
+      mismatchDetails.push({
+        position: i,
+        live: liveTailFingerprints[i] || '(none)',
+        displayed: displayedTailFingerprints[i] || '(none)'
+      });
+    }
+  }
+  
+  const matchRatio = matchCount / liveTailFingerprints.length;
+  const isMatch = matchRatio >= 0.75; // Allow 25% tolerance (media placeholders, etc.)
+  
+  return {
+    match: isMatch,
+    matchRatio,
+    matchCount,
+    total: liveTailFingerprints.length,
+    details: isMatch 
+      ? `✅ ${matchCount}/${liveTailFingerprints.length} tail messages match`
+      : `❌ Only ${matchCount}/${liveTailFingerprints.length} tail messages match`,
+    mismatches: mismatchDetails
+  };
+};
+
+// Perform corrective merge: live page is absolute truth for recent messages
+// DB messages are only used for historical (older) messages
+const correctiveMerge = (liveMessages, dbMessages) => {
+  console.log(`[Verify] Corrective merge: ${liveMessages.length} live + ${dbMessages.length} DB`);
+  
+  if (!liveMessages || liveMessages.length === 0) return dbMessages || [];
+  if (!dbMessages || dbMessages.length === 0) return liveMessages;
+  
+  // Live messages ARE the truth for the recent portion of the chat
+  // Only prepend DB messages that are OLDER than ALL live messages
+  
+  // Build fingerprint set of all live messages for dedup
+  const liveFPs = new Set(liveMessages.map(msgFingerprint));
+  const liveKeys = new Set(liveMessages.map(createMessageKey));
+  
+  // Find the oldest live message timestamp
+  let oldestLiveTs = Infinity;
+  liveMessages.forEach(msg => {
+    const ts = getMsgTimestamp(msg);
+    if (ts > 0 && ts < oldestLiveTs) oldestLiveTs = ts;
+  });
+  
+  // Filter DB messages: only keep ones that are strictly historical
+  const historical = dbMessages.filter(msg => {
+    // Skip if it's a duplicate of a live message
+    if (liveKeys.has(createMessageKey(msg))) return false;
+    if (liveFPs.has(msgFingerprint(msg))) return false;
+    
+    // Must be older than oldest live message
+    const ts = getMsgTimestamp(msg);
+    if (ts > 0 && oldestLiveTs < Infinity) {
+      return ts < oldestLiveTs;
+    }
+    
+    // No timestamp comparison possible — skip to avoid disorder
+    return false;
+  });
+  
+  // Sort historical by timestamp
+  historical.sort((a, b) => {
+    const tsA = getMsgTimestamp(a);
+    const tsB = getMsgTimestamp(b);
+    if (tsA > 0 && tsB > 0) return tsA - tsB;
+    return 0;
+  });
+  
+  const result = [...historical, ...liveMessages];
+  reindexOrder(result);
+  
+  console.log(`[Verify] Corrective result: ${historical.length} historical + ${liveMessages.length} live = ${result.length} total`);
+  return result;
+};
+
+// Main verification: fetch fresh live messages, compare, correct if needed
+const verifyAndCorrectChat = async () => {
+  const currentSubscriberId = Store.get('currentSubscriberId');
+  if (!currentSubscriberId) return;
+  
+  // PERFORMANCE: Cooldown to prevent excessive verification cascades
+  const now = Date.now();
+  if (now - lastVerificationTime < VERIFY_COOLDOWN_MS) {
+    console.log(`[Verify] Skipping — cooldown active (${Math.round((VERIFY_COOLDOWN_MS - (now - lastVerificationTime)) / 1000)}s remaining)`);
+    return;
+  }
+  lastVerificationTime = now;
+  
+  verificationRetries = 0;
+  
+  const runVerification = async () => {
+    verificationRetries++;
+    console.log(`[Verify] === Verification attempt ${verificationRetries}/${MAX_VERIFICATION_RETRIES} ===`);
+    
+    // Fetch fresh messages from the live page
+    let freshLiveMessages = [];
+    try {
+      freshLiveMessages = await requestChatFromPageDirect();
+    } catch (e) {
+      console.log('[Verify] Could not fetch fresh live messages:', e.message);
+      return; // Can't verify without live page — skip silently
+    }
+    
+    if (!freshLiveMessages || freshLiveMessages.length === 0) {
+      console.log('[Verify] No fresh live messages — skipping verification');
+      return;
+    }
+    
+    // Compare tail of currently displayed messages with fresh live
+    const currentMessages = Store.get('messages') || [];
+    const result = compareTails(currentMessages, freshLiveMessages);
+    
+    console.log(`[Verify] ${result.details}`);
+    
+    if (result.match) {
+      console.log('[Verify] ✅ Chat verified — messages match live page');
+      verificationRetries = 0;
+      return;
+    }
+    
+    // MISMATCH — need correction
+    console.warn(`[Verify] ⚠️ Mismatch detected! ${result.details}`);
+    if (result.mismatches?.length > 0) {
+      result.mismatches.forEach(m => {
+        console.warn(`[Verify]   Position ${m.position}: live="${m.live}" vs displayed="${m.displayed}"`);
+      });
+    }
+    
+    // Perform corrective merge using live page as ground truth
+    const dbMessages = Store.get('storedChat')?.messages || [];
+    const corrected = correctiveMerge(freshLiveMessages, dbMessages);
+    
+    // Update store and re-render
+    Store.set('messages', corrected);
+    renderChatMessages();
+    
+    // Save corrected version to DB
+    const currentProfile = Store.get('currentProfile');
+    if (currentProfile && currentSubscriberId && corrected.length > 0) {
+      saveFullChatReplacement(corrected);
+    }
+    
+    console.log(`[Verify] Applied corrective merge: ${corrected.length} messages`);
+    
+    // Re-verify if we haven't exceeded retries
+    if (verificationRetries < MAX_VERIFICATION_RETRIES) {
+      console.log(`[Verify] Re-verifying in 2s...`);
+      setTimeout(async () => {
+        // Check we're still on the same chat
+        if (Store.get('currentSubscriberId') !== currentSubscriberId) {
+          console.log('[Verify] Chat changed — aborting re-verification');
+          return;
+        }
+        await runVerification();
+      }, 2000);
+    } else {
+      console.log(`[Verify] Max retries reached — accepting current state`);
+      verificationRetries = 0;
+    }
+  };
+  
+  await runVerification();
 };
 
 // Load and sync chat - ALWAYS load from live page first, then merge with DB
@@ -263,6 +612,16 @@ export const loadAndSyncChat = async () => {
     // Trigger notes auto-scan (if enabled)
     setTimeout(() => onChatLoaded(), 1500);
     
+    // STEP 5: Verify displayed messages match live page
+    // Run after a delay to let DOM settle and avoid racing with content script
+    setTimeout(() => {
+      // Ensure we're still on the same chat
+      if (Store.get('currentSubscriberId') === subscriberData.fullId) {
+        console.log('[Chat] Step 5: Running post-load verification...');
+        verifyAndCorrectChat();
+      }
+    }, 3000);
+    
   } catch (error) {
     console.error('Chat sync error:', error);
     // Fallback to page fetch
@@ -347,9 +706,14 @@ export const forceRefreshSubscriberStats = async () => {
     };
     
     if (response.success && response.stats) {
-      if (response.stats.subscribedSince) {
+      // PROTECT subscribedSince — once set, it's the permanent anchor date
+      // Only set on FIRST detection. Re-scraping would shift the date due to
+      // approximate back-calculation ("30 days" → now-30d recalculated each time)
+      if (response.stats.subscribedSince && !updatedNotes.subscribedSince) {
         updatedNotes.subscribedSince = response.stats.subscribedSince;
+        console.log('[Chat] Set subscribedSince anchor:', updatedNotes.subscribedSince);
       }
+      // totalSpent CAN be refreshed — it's a cumulative value from the page
       if (response.stats.totalSpent) {
         updatedNotes.totalSpent = response.stats.totalSpent;
       }
@@ -518,7 +882,17 @@ export const setupTabWatcher = () => {
   });
 };
 
-export const detectAndSyncChat = async () => {
+// PERFORMANCE: Debounced entry point — tab events (onUpdated, onActivated) fire
+// in rapid bursts during navigation. This collapses them into a single call.
+export const detectAndSyncChat = () => {
+  if (_detectSyncDebounceTimer) clearTimeout(_detectSyncDebounceTimer);
+  _detectSyncDebounceTimer = setTimeout(() => {
+    _detectSyncDebounceTimer = null;
+    _detectAndSyncChatImpl();
+  }, DETECT_SYNC_DEBOUNCE_MS);
+};
+
+const _detectAndSyncChatImpl = async () => {
   const subscriberData = await getSubscriberIdFromTab();
   
   console.log('[Chat] detectAndSyncChat - subscriberData:', subscriberData);

@@ -19,6 +19,11 @@ const state = {
   operationVersion: 0,  // Increments on each subscriber switch
   isLoadingProgress: false,  // Prevents stale renders
   
+  // Render version tracking (detects display desync)
+  messageVersion: 0,       // Increments only when message content actually changes
+  lastRenderedVersion: 0,  // Last version that was rendered to DOM
+  lastMessageFingerprint: '', // Fingerprint of last messages set (count + last text)
+  
   // AI
   summary: '',
   lastSummaryCount: 0,
@@ -45,8 +50,38 @@ export const Store = {
   // Setters
   set: (key, value) => {
     const oldValue = state[key];
+    
+    // PERFORMANCE: Cap messages array to prevent unbounded memory growth
+    // Keep only the most recent 5000 messages in the in-memory store
+    // (full history is preserved in the database)
+    if (key === 'messages' && Array.isArray(value) && value.length > 5000) {
+      console.log(`[Store] Capping messages from ${value.length} to 5000 (most recent kept)`);
+      value = value.slice(-5000);
+    }
+    
     state[key] = value;
+    // Auto-bump message version ONLY when message content actually changes
+    // This prevents unnecessary re-renders when incoming messages are identical
+    if (key === 'messages') {
+      const msgs = value || [];
+      const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+      const fingerprint = `${msgs.length}|${lastMsg ? (lastMsg.isFromMe ? '1' : '0') : ''}|${(lastMsg?.text || '').substring(0, 30)}`;
+      if (fingerprint !== state.lastMessageFingerprint) {
+        state.lastMessageFingerprint = fingerprint;
+        state.messageVersion++;
+      }
+    }
     Store.emit(key, value, oldValue);
+  },
+  
+  // Mark that the renderer has caught up
+  markRendered: () => {
+    state.lastRenderedVersion = state.messageVersion;
+  },
+  
+  // Check if display is out of sync
+  isDisplayStale: () => {
+    return state.messageVersion !== state.lastRenderedVersion;
   },
   
   // Batch update

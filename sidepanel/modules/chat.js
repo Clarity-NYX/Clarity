@@ -27,7 +27,10 @@ import {
   setupMessageListener,
   
   // Main setup
-  setupChat
+  setupChat,
+  
+  // Vault
+  setupVault
 } from './chat/index.js';
 
 // Make toggleAlarmMute available globally for the notification module
@@ -62,5 +65,6 @@ export {
   loadChatList,
   setupChatListListeners,
   toggleAlarmMute,
-  setupChat
+  setupChat,
+  setupVault
 };

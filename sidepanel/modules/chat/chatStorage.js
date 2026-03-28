@@ -52,11 +52,11 @@ const isTelegramPlatform = () => {
 
 // Debounce timers per chat
 const saveChatDebounce = new Map();
-const SAVE_DEBOUNCE_MS = 2000; // Wait 2 seconds before saving (reduced for better UX)
+const SAVE_DEBOUNCE_MS = 500; // Wait 500ms before saving (fast but still batches rapid changes)
 
 // Rate limiting - track last save time per chat
 const lastSaveTime = new Map();
-const MIN_SAVE_INTERVAL_MS = 5000; // Min 5 seconds between saves
+const MIN_SAVE_INTERVAL_MS = 2000; // Min 2 seconds between saves (was 5s - too slow)
 
 // Last saved hash per chat - only save if data changed
 const lastSavedHash = new Map();
@@ -105,6 +105,15 @@ export const saveFullChatReplacement = async (messages, forceImmediate = false) 
   // Save function - PLATFORM AWARE
   const performSave = async () => {
     try {
+      // SAFETY CHECK: Never save fewer messages than what's already in the DB
+      // This prevents accidental history loss from race conditions
+      const storedChat = Store.get('storedChat') || {};
+      const storedCount = storedChat.messages?.length || 0;
+      if (storedCount > 0 && messages.length < storedCount * 0.5) {
+        console.warn(`[Chat] ⛔ BLOCKED save: would save ${messages.length} msgs over ${storedCount} stored — likely data loss`);
+        return;
+      }
+      
       console.log(`[Chat] Saving ${currentSubscriberId} (${messages.length} msgs)`);
       
       let response;

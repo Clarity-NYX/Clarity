@@ -469,8 +469,8 @@ async function waitForSendButtonReady(maxWaitMs = 30000, checkIntervalMs = 500) 
 }
 
 // Send image to chat via drag & drop (with optional price for PPV)
-export async function sendImageToChat(imageData, caption = null, price = 0) {
-  console.log('[Clarity] 📸 Sending image to OnlyFans chat...', price > 0 ? `(PPV $${price})` : '(free)');
+export async function sendImageToChat(imageData, caption = null, price = 0, autoSend = true) {
+  console.log('[Clarity] 📸 Sending image to OnlyFans chat...', price > 0 ? `(PPV $${price})` : '(free)', autoSend ? '' : '(stage only)');
   
   if (!isOnChatPage()) {
     return { success: false, error: 'Not on a chat page' };
@@ -493,7 +493,7 @@ export async function sendImageToChat(imageData, caption = null, price = 0) {
     
     console.log('[Clarity] ✅ Found chat editor:', chatEditor.className);
     
-    // Detect MIME type from base64 data URL header (supports images AND videos)
+    // Detect MIME type (supports base64 data URLs AND remote URLs)
     let mimeType = 'image/jpeg';
     let filename = 'image.jpg';
     
@@ -510,6 +510,25 @@ export async function sendImageToChat(imageData, caption = null, price = 0) {
           filename = `image.${ext}`;
         }
       }
+    } else if (imageData.startsWith('http')) {
+      // Remote URL (Firebase Storage, etc.) — detect type from URL path
+      const urlPath = imageData.split('?')[0].toLowerCase();
+      if (urlPath.match(/\.(mp4|webm|mov|avi)/) || urlPath.includes('video')) {
+        mimeType = 'video/mp4';
+        filename = 'video.mp4';
+        console.log('[Clarity] 🎥 Detected video URL');
+      } else if (urlPath.match(/\.(gif)/)) {
+        mimeType = 'image/gif';
+        filename = 'image.gif';
+      } else if (urlPath.match(/\.(png)/)) {
+        mimeType = 'image/png';
+        filename = 'image.png';
+      } else if (urlPath.match(/\.(webp)/)) {
+        mimeType = 'image/webp';
+        filename = 'image.webp';
+      }
+      // Note: base64ToFile will use actual content-type from fetch response
+      console.log('[Clarity] 🌐 Remote URL detected, initial type guess:', mimeType);
     }
     
     // Convert base64 to File
@@ -577,6 +596,14 @@ export async function sendImageToChat(imageData, caption = null, price = 0) {
     }
     
     // ============================================================
+    // STAGE ONLY MODE - Don't auto-send, let user click send
+    // ============================================================
+    if (!autoSend) {
+      console.log('[Clarity] 📋 Image staged in chat composer — user will send manually');
+      return { success: true, staged: true, sent: false };
+    }
+
+    // ============================================================
     // SET PRICE (PPV) - If price > 0, set the price before sending
     // ============================================================
     if (price > 0) {
@@ -614,10 +641,21 @@ export async function sendImageToChat(imageData, caption = null, price = 0) {
   }
 }
 
-// Convert base64 data URL to File object
+// Convert image data (base64 data URL or remote URL) to File object
 async function base64ToFile(dataUrl, filename, mimeType) {
   try {
-    // Handle both base64 with header and without
+    // If it's a remote URL (Firebase Storage, etc.) — fetch it first
+    if (dataUrl.startsWith('http://') || dataUrl.startsWith('https://')) {
+      console.log('[Clarity] 🌐 Fetching remote media:', dataUrl.substring(0, 80) + '...');
+      const response = await fetch(dataUrl);
+      if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+      const blob = await response.blob();
+      // Use the actual content type from the response if available
+      const actualType = blob.type || mimeType;
+      return new File([blob], filename, { type: actualType });
+    }
+    
+    // Otherwise treat as base64 data URL
     let base64Data = dataUrl;
     if (dataUrl.includes(',')) {
       base64Data = dataUrl.split(',')[1];
@@ -634,7 +672,7 @@ async function base64ToFile(dataUrl, filename, mimeType) {
     const blob = new Blob([ab], { type: mimeType });
     return new File([blob], filename, { type: mimeType });
   } catch (error) {
-    console.error('[Clarity] Error converting base64 to file:', error);
+    console.error('[Clarity] Error converting data to file:', error);
     return null;
   }
 }

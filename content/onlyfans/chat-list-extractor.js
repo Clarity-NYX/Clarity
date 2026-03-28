@@ -1,15 +1,27 @@
 // ============================================================
 // CHAT LIST EXTRACTOR - Scrapes OnlyFans chat list
 // ============================================================
+// PERFORMANCE-OPTIMIZED:
+// - Scrape result caching with TTL to prevent redundant DOM queries
+// - Hash-first check: if caller provides last hash, skip scrape entirely
+// - Reduced console.log noise in production hot paths
+// ============================================================
+
+// Scrape cache — prevents re-scraping when called multiple times within TTL
+let _scrapeCache = null;
+let _scrapeCacheTime = 0;
+const SCRAPE_CACHE_TTL = 2000; // Don't re-scrape within 2 seconds
 
 // Scrape chat list with timestamps for auto-chat (includes isTheirMessageLast)
 export const scrapeChatListWithTimestamps = () => {
-  console.log('[Content] Scraping chat list WITH timestamps...');
+  // Return cached result if within TTL
+  const now = Date.now();
+  if (_scrapeCache && (now - _scrapeCacheTime) < SCRAPE_CACHE_TTL) {
+    return _scrapeCache;
+  }
   
   const chats = [];
   const chatItems = document.querySelectorAll('.b-available-users__item.b-chats__item');
-  
-  console.log('[Content] Found chat items:', chatItems.length);
   
   chatItems.forEach(item => {
     try {
@@ -30,12 +42,10 @@ export const scrapeChatListWithTimestamps = () => {
       const lastMessagePreview = lastMsgEl?.textContent?.trim() || '';
       
       // Determine if THEIR message is last (we need to reply)
-      // Check for "m-from-them" indicator or other classes
       const lastMsgContainer = item.querySelector('.b-chats__item__last-message');
       const isFromThem = lastMsgContainer?.classList.contains('m-from-them') ||
                         !lastMsgContainer?.classList.contains('m-from-me');
       
-      // Also check the text itself for common patterns
       // If the preview starts with "You:" it's our message
       const isOurMessage = lastMessagePreview.startsWith('You:') || 
                           lastMsgContainer?.classList.contains('m-from-me');
@@ -59,7 +69,7 @@ export const scrapeChatListWithTimestamps = () => {
         lastMessageTimestamp = estimateTimestamp(timeText);
       }
       
-      // Check for unread indicator (OnlyFans uses "m-unread" class and "uread-count" element - note typo)
+      // Check for unread indicator
       const hasUnread = item.classList.contains('m-unread') || 
                         item.querySelector('.b-chats__item__uread-count') !== null;
       
@@ -78,22 +88,28 @@ export const scrapeChatListWithTimestamps = () => {
     }
   });
   
-  console.log('[Content] Scraped chats with timestamps:', chats.length);
-  return { success: true, chats };
+  const result = { success: true, chats };
+  
+  // Cache the result
+  _scrapeCache = result;
+  _scrapeCacheTime = now;
+  
+  return result;
+};
+
+// Invalidate scrape cache (call when you know DOM has changed)
+export const invalidateScrapeCache = () => {
+  _scrapeCache = null;
+  _scrapeCacheTime = 0;
 };
 
 // Scrape chat list (simplified version without timestamps)
 export const scrapeChatList = () => {
-  console.log('[Content] Scraping chat list...');
-  
   const chats = [];
   const chatItems = document.querySelectorAll('.b-available-users__item.b-chats__item');
   
-  console.log('[Content] Found chat items:', chatItems.length);
-  
   chatItems.forEach(item => {
     try {
-      // Get subscriber ID from item id attribute or from link
       const itemId = item.id || '';
       const linkEl = item.querySelector('a.b-chats__item__link');
       const linkMatch = linkEl?.href?.match(/\/chat\/(\d+)/);
@@ -101,28 +117,22 @@ export const scrapeChatList = () => {
       
       if (!subscriberId) return;
       
-      // Get username
       const usernameEl = item.querySelector('.g-user-name');
       const subscriberName = usernameEl?.textContent?.trim() || 'Unknown';
       
-      // Get handle (if available)
       const handleEl = item.querySelector('.g-user-username');
       const handle = handleEl?.textContent?.trim() || '';
       
-      // Get last message preview
       const lastMsgEl = item.querySelector('.b-chats__item__last-message__text');
       const lastMessagePreview = lastMsgEl?.textContent?.trim() || '';
       
-      // Get time
       const timeEl = item.querySelector('.b-chats__item__time span');
       const timeText = timeEl?.textContent?.trim() || '';
       const fullTime = timeEl?.getAttribute('title') || '';
       
-      // Check if online
       const avatarLink = item.querySelector('.g-avatar');
       const isOnline = avatarLink?.classList.contains('online_status_class') || false;
       
-      // Check for unread indicator (OnlyFans uses "m-unread" class and "uread-count" element - note typo)
       const hasUnread = item.classList.contains('m-unread') || 
                         item.querySelector('.b-chats__item__uread-count') !== null;
       
@@ -142,7 +152,6 @@ export const scrapeChatList = () => {
     }
   });
   
-  console.log('[Content] Scraped chats:', chats.length);
   return { success: true, chats };
 };
 

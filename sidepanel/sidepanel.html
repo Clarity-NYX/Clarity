@@ -480,6 +480,10 @@
         <span class="sub-label">💰 Spent</span>
         <span id="totalSpent" class="sub-value">$0</span>
       </div>
+      <div class="sub-info-divider"></div>
+      <div id="taskDaysContainer" class="task-days-container">
+        <!-- Populated dynamically by taskDays.js -->
+      </div>
       <button id="refreshSubInfoBtn" class="sub-refresh-btn" title="Refresh subscriber info">🔄</button>
     </div>
 
@@ -555,8 +559,8 @@
           <!-- Populated dynamically by autochat-onlyfans.js -->
         </div>
 
-        <!-- Settings Panel (Chat Tab) -->
-        <div id="settingsPanelChat" class="settings-panel-chat collapsed">
+        <!-- Settings Panel (Chat Tab) — REMOVED: Settings accessible via ⚙️ gear menu only -->
+        <div id="settingsPanelChat" class="settings-panel-chat collapsed" style="display: none !important;">
           <div class="settings-panel-header" id="settingsPanelHeaderToggle">
             <div class="settings-panel-header-left">
               <span class="collapse-arrow" id="settingsPanelArrow">▶</span>
@@ -627,6 +631,18 @@
         <!-- CHAT LIST VIEW (shown when no chat is open) -->
         <!-- ============================================================ -->
         <div id="chatListView" class="chat-list-view hidden">
+          <!-- Mass Message Quick-Launch Bar -->
+          <div class="bc-launch-bar" id="bcLaunchBar">
+            <div class="bc-launch-left">
+              <span class="bc-launch-icon">📢</span>
+              <div class="bc-launch-text">
+                <span class="bc-launch-title">Mass Message</span>
+                <span class="bc-launch-desc">Send personalized messages to subscribers</span>
+              </div>
+            </div>
+            <button id="broadcastBtn" class="btn btn-primary btn-small bc-launch-btn">Start</button>
+          </div>
+
           <div class="chat-list-header">
             <h3>📬 Recent Chats</h3>
             <div class="chat-list-actions">
@@ -687,6 +703,8 @@
               <span id="messageCount" class="message-count">0</span>
             </div>
             <div class="chat-header-right">
+              <button id="vaultBtn" class="btn btn-tiny" title="Media Vault">🖼️</button>
+              <button id="saveForTrainingBtn" class="btn btn-tiny" title="Save chat as training data">📚</button>
               <button id="calendarBtn" title="Script Timeline">📅</button>
               <span id="progressCounter" class="progress-counter">0/0</span>
             </div>
@@ -713,6 +731,13 @@
 
         <!-- Response Generation Section -->
         <div class="response-section">
+          <!-- AI Mode Toggle (hidden by default, shown for admins) -->
+          <div id="aiModeToggle" class="ai-mode-toggle hidden">
+            <span class="mode-label">AI:</span>
+            <button id="modeStandardBtn" class="mode-btn active" title="Default hardcoded prompt">Standard</button>
+            <button id="modeLearnedBtn" class="mode-btn" title="Inject trained Domina Brain data">🧠 Learned</button>
+          </div>
+
           <button id="generateBtn" class="btn btn-generate">
             <span class="btn-icon">🤖</span>
             <span class="btn-text">Generate Response</span>
@@ -768,6 +793,12 @@
       <!-- NOTES TAB -->
       <div id="notesTab" class="tab-content">
         <div class="notes-section">
+
+          <!-- Subscriber Group Assignment (top of notes) -->
+          <div id="subscriberGroupSection" class="subscriber-group-section">
+            <!-- Populated dynamically by subscriberGroups.js -->
+          </div>
+
           <div class="notes-header">
             <h3>📝 Subscriber Notes</h3>
             <div class="notes-header-actions">
@@ -1038,6 +1069,7 @@
           </div>
         </div>
       </div>
+
     </main>
 
     <!-- Packages/Shop Modal -->
@@ -1377,6 +1409,48 @@
       </div>
     </div>
 
+    <!-- Broadcast Modal -->
+    <div id="broadcastModal" class="broadcast-modal">
+      <div class="broadcast-backdrop"></div>
+      <div class="broadcast-panel">
+        <div class="broadcast-header">
+          <h3>📢 Mass Message</h3>
+          <button id="broadcastCloseBtn" class="icon-btn">✕</button>
+        </div>
+        <div id="broadcastBody" class="broadcast-body">
+          <!-- Populated dynamically by broadcast.js -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Vault Modal -->
+    <div id="vaultModal" class="vault-modal">
+      <div class="vault-backdrop"></div>
+      <div class="vault-panel">
+        <div class="vault-header">
+          <h3>🖼️ Media Vault</h3>
+          <div class="vault-header-actions">
+            <button id="vaultSelectBtn" class="btn btn-tiny">Select</button>
+            <button id="vaultCloseBtn" class="icon-btn">✕</button>
+          </div>
+        </div>
+        <div id="vaultSelectorRow" class="vault-selector-row">
+          <!-- Vault pills populated dynamically by chatVault.js -->
+        </div>
+        <div class="vault-tabs">
+          <button class="vault-tab-btn active" data-tab="images">📷 Images</button>
+          <button class="vault-tab-btn" data-tab="videos">🎬 Videos</button>
+          <button class="vault-tab-btn" data-tab="sent">✅ Sent</button>
+        </div>
+        <div id="vaultGrid" class="vault-grid">
+          <!-- Populated dynamically by chatVault.js -->
+        </div>
+        <div class="vault-footer">
+          <button id="vaultAddBtn" class="btn btn-secondary btn-small">➕ Add Media</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Calendar Timeline Modal -->
     <div id="calendarModal" class="modal hidden">
       <div class="calendar-modal-content">
@@ -1415,6 +1489,7 @@
   <!-- Configuration must load first -->
   <script src="config.js"></script>
   <script src="firebase.js"></script>
+  <script src="libs/heic2any.js"></script>
   <script type="module" src="sidepanel.js"></script>
 </body>
 </html>

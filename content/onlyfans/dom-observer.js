@@ -1,9 +1,15 @@
 // ============================================================
 // DOM OBSERVER - Monitors DOM changes for chat list and messages
 // ============================================================
+// PERFORMANCE-OPTIMIZED:
+// - Targeted MutationObserver (not body-wide) with auto-disconnect
+// - Event-driven URL detection via History API (no polling)
+// - MutationObserver is primary; polling is fallback only
+// - Smart activity-based intervals when polling is needed
+// ============================================================
 
 import { scrapeChatListWithTimestamps } from './chat-list-extractor.js';
-import { SELECTORS, INTERVALS, SMART_INTERVALS } from './constants.js';
+import { SELECTORS, SMART_INTERVALS } from './constants.js';
 
 // Chat list observer state
 let chatListObserver = null;
@@ -11,9 +17,13 @@ let lastChatListHash = '';
 let chatListDebounceTimer = null;
 let chatListPollInterval = null;
 
+// Page observer state (targeted, auto-disconnecting)
+let pageObserver = null;
+let pageObserverTimeout = null;
+
 // Activity tracking for smart intervals
 let lastActivityTime = Date.now();
-let currentPollInterval = INTERVALS.chatListPolling;
+let currentPollInterval = SMART_INTERVALS.normal;
 let isAutoChatActive = false;
 
 // ============================================================
@@ -55,7 +65,7 @@ export function startChatListObserver() {
           data: result.chats
         }).catch(() => {});
       }
-    }, 200); // 200ms debounce for faster detection
+    }, 200); // 200ms debounce
   });
   
   chatListObserver.observe(chatListContainer, {
@@ -77,6 +87,12 @@ export function startChatListObserver() {
       }).catch(() => {});
     }
   }, 1000);
+  
+  // MutationObserver is primary — disable polling if it was running
+  if (chatListPollInterval) {
+    console.log('[Clarity] Observer active — stopping redundant polling');
+    stopChatListPolling();
+  }
 }
 
 // Stop observing
@@ -135,13 +151,19 @@ function checkIdleState() {
 }
 
 // ============================================================
-// CHAT LIST POLLING - Smart intervals based on activity
+// CHAT LIST POLLING - Fallback only (when MutationObserver can't attach)
 // ============================================================
 
 export function startChatListPolling() {
   if (chatListPollInterval) return; // Already running
   
-  console.log(`[Clarity] Starting chat list polling (every ${currentPollInterval}ms)...`);
+  // If MutationObserver is active, don't start polling — observer is primary
+  if (chatListObserver) {
+    console.log('[Clarity] Observer is active — skipping polling start');
+    return;
+  }
+  
+  console.log(`[Clarity] Starting fallback chat list polling (every ${currentPollInterval}ms)...`);
   
   const pollFunction = () => {
     // Only poll if on OnlyFans
@@ -152,6 +174,15 @@ export function startChatListPolling() {
     
     // Check for idle state
     checkIdleState();
+    
+    // Try to upgrade to MutationObserver if container is now available
+    const chatListContainer = document.querySelector(SELECTORS.chatListContainer);
+    if (chatListContainer && !chatListObserver) {
+      console.log('[Clarity] Chat list container found — upgrading to MutationObserver');
+      stopChatListPolling();
+      startChatListObserver();
+      return;
+    }
     
     const result = scrapeChatListWithTimestamps();
     if (!result.success || !result.chats) return;
@@ -190,14 +221,20 @@ export function stopChatListPolling() {
 }
 
 // ============================================================
-// PAGE WATCHING - Monitor URL changes and DOM mutations
+// PAGE WATCHING - Event-driven URL detection + targeted observer
+// ============================================================
+// PERFORMANCE: Replaces body-wide MutationObserver + 300ms polling
+// with History API interception (zero-cost) + targeted observer
+// that auto-disconnects after finding the chat container.
 // ============================================================
 
 export function startPageWatching(onChatPageEntered) {
   let lastUrl = window.location.href;
   
-  // URL change detection
-  setInterval(() => {
+  // ----------------------------------------------------------
+  // URL change detection via History API interception (zero polling)
+  // ----------------------------------------------------------
+  const handleUrlChange = () => {
     const currentUrl = window.location.href;
     if (currentUrl !== lastUrl) {
       const previousUrl = lastUrl;
@@ -205,15 +242,59 @@ export function startPageWatching(onChatPageEntered) {
       
       console.log('[Clarity] URL changed:', previousUrl, '->', currentUrl);
       
-      // Notify callback if chat page entered
       if (onChatPageEntered) {
         onChatPageEntered(currentUrl);
       }
+      
+      // Re-observe for chat container on navigation
+      observeForChatContainer(onChatPageEntered);
     }
-  }, INTERVALS.urlCheck);
+  };
   
-  // DOM mutation observer for dynamic content
-  new MutationObserver(mutations => {
+  // Intercept pushState (SPA navigations)
+  const originalPushState = history.pushState;
+  history.pushState = function(...args) {
+    originalPushState.apply(this, args);
+    handleUrlChange();
+  };
+  
+  // Intercept replaceState
+  const originalReplaceState = history.replaceState;
+  history.replaceState = function(...args) {
+    originalReplaceState.apply(this, args);
+    handleUrlChange();
+  };
+  
+  // Handle browser back/forward
+  window.addEventListener('popstate', handleUrlChange);
+  
+  // ----------------------------------------------------------
+  // Targeted chat container observer (replaces body-wide observer)
+  // ----------------------------------------------------------
+  observeForChatContainer(onChatPageEntered);
+}
+
+// Observe for chat container appearance — targeted, auto-disconnecting
+function observeForChatContainer(onChatPageEntered) {
+  // Disconnect any existing page observer first
+  disconnectPageObserver();
+  
+  // If chat container already exists, just notify and return
+  const existing = document.querySelector('.b-chat__messages-wrapper, .b-chat__content, .b-chat__message');
+  if (existing) {
+    if (onChatPageEntered) {
+      setTimeout(() => onChatPageEntered(window.location.href), 100);
+    }
+    return;
+  }
+  
+  // Find the narrowest possible observation target
+  // OnlyFans main content area — much narrower than document.body
+  const observeTarget = document.querySelector(
+    '#content, .l-wrapper__content, main, [role="main"]'
+  ) || document.body;
+  
+  pageObserver = new MutationObserver((mutations, observer) => {
     for (const mutation of mutations) {
       if (mutation.type !== 'childList' || !mutation.addedNodes.length) continue;
       
@@ -222,14 +303,53 @@ export function startPageWatching(onChatPageEntered) {
         
         // Check if chat container loaded
         if (node.classList?.contains('b-chat__messages-wrapper') ||
-            node.querySelector?.('.b-chat__messages-wrapper') ||
+            node.classList?.contains('b-chat__content') ||
             node.classList?.contains('b-chat__message')) {
+          // Found — disconnect immediately to stop observing
+          disconnectPageObserver();
           if (onChatPageEntered) {
             setTimeout(() => onChatPageEntered(window.location.href), 500);
           }
           return;
         }
+        
+        // Also check first-level children (one level deep only, not full subtree query)
+        if (node.children) {
+          for (const child of node.children) {
+            if (child.classList?.contains('b-chat__messages-wrapper') ||
+                child.classList?.contains('b-chat__content') ||
+                child.classList?.contains('b-chat__message')) {
+              disconnectPageObserver();
+              if (onChatPageEntered) {
+                setTimeout(() => onChatPageEntered(window.location.href), 500);
+              }
+              return;
+            }
+          }
+        }
       }
     }
-  }).observe(document.body, { childList: true, subtree: true });
+  });
+  
+  pageObserver.observe(observeTarget, { childList: true, subtree: true });
+  
+  // Safety: auto-disconnect after 30 seconds to prevent indefinite observation
+  pageObserverTimeout = setTimeout(() => {
+    if (pageObserver) {
+      console.log('[Clarity] Page observer timeout — disconnecting (chat container not found in 30s)');
+      disconnectPageObserver();
+    }
+  }, 30000);
+}
+
+// Clean disconnect of page observer
+function disconnectPageObserver() {
+  if (pageObserver) {
+    pageObserver.disconnect();
+    pageObserver = null;
+  }
+  if (pageObserverTimeout) {
+    clearTimeout(pageObserverTimeout);
+    pageObserverTimeout = null;
+  }
 }

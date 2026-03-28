@@ -4,6 +4,7 @@
 
 import Store from '../../state/store.js';
 import { $, escapeHtml } from '../../utils/dom.js';
+import { renderTaskDays } from './taskDays.js';
 
 // Generate unique key for message deduplication
 // Only dedupe if we have a REAL ID - don't dedupe based on content
@@ -109,14 +110,49 @@ const parseMessageTime = (timeStr) => {
   }
 };
 
+// ============================================================
+// DISPLAY CROSS-CHECK - Periodic check for stale display
+// ============================================================
+
+let crossCheckInterval = null;
+
+// Start periodic cross-check (call once on init)
+export const startDisplayCrossCheck = () => {
+  if (crossCheckInterval) return; // Already running
+  
+  crossCheckInterval = setInterval(() => {
+    // Skip cross-check if a preview or loading message is showing
+    // — user is actively reviewing AI output, don't disrupt
+    const hasPreview = document.getElementById('previewMessage');
+    const hasLoading = document.getElementById('loadingMessage');
+    if (hasPreview || hasLoading) return;
+    
+    if (Store.isDisplayStale()) {
+      console.log('[Chat] ⚠️ Display stale detected by cross-check — re-rendering');
+      renderChatMessages();
+    }
+  }, 5000); // Check every 5 seconds (reduced from 3s to minimize flashing)
+  
+  console.log('[Chat] Display cross-check started (every 5s)');
+};
+
+// Stop cross-check (cleanup)
+export const stopDisplayCrossCheck = () => {
+  if (crossCheckInterval) {
+    clearInterval(crossCheckInterval);
+    crossCheckInterval = null;
+  }
+};
+
 // Render chat messages
 export const renderChatMessages = () => {
   const rawMessages = Store.get('messages');
   // Deduplicate messages for display to avoid visual duplicates
   let messages = deduplicateForDisplay(rawMessages);
   
-  // CRITICAL: Sort messages by order/datetime to ensure chronological display
-  messages = sortMessagesChronologically(messages);
+  // DO NOT re-sort here — messages are already in correct order from the merge
+  // Re-sorting by 'order' or 'datetime' across sources causes scrambling
+  // The merge in chatSync.js is the single source of truth for ordering
   
   const messageCount = $('messageCount');
   const chatMessages = $('chatMessages');
@@ -129,6 +165,13 @@ export const renderChatMessages = () => {
     subscriberInfoBar.classList.toggle('hidden', !messages.length);
   }
   
+  // PRESERVE preview/loading elements — these are dynamically added by AI module
+  // and must survive re-renders. Detach them, re-render messages, then re-attach.
+  const previewMessage = document.getElementById('previewMessage');
+  const loadingMessage = document.getElementById('loadingMessage');
+  const savedPreview = previewMessage ? previewMessage.parentNode.removeChild(previewMessage) : null;
+  const savedLoading = loadingMessage ? loadingMessage.parentNode.removeChild(loadingMessage) : null;
+  
   if (!messages.length) {
     chatMessages.innerHTML = `
       <div class="empty-state">
@@ -136,6 +179,9 @@ export const renderChatMessages = () => {
         <p>No conversation loaded</p>
         <small>Open a chat on OnlyFans or Telegram</small>
       </div>`;
+    // Re-attach preview/loading even on empty state
+    if (savedLoading) chatMessages.appendChild(savedLoading);
+    if (savedPreview) chatMessages.appendChild(savedPreview);
     return;
   }
   
@@ -181,7 +227,19 @@ export const renderChatMessages = () => {
       </div>`;
   }).join('');
   
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  // Re-attach preview/loading elements after rendering messages
+  if (savedLoading) chatMessages.appendChild(savedLoading);
+  if (savedPreview) chatMessages.appendChild(savedPreview);
+  
+  // Scroll: if preview is showing, scroll to show it; otherwise scroll to bottom
+  if (savedPreview) {
+    savedPreview.scrollIntoView({ behavior: 'instant', block: 'end' });
+  } else {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+  
+  // Mark that we've rendered the current message version
+  Store.markRendered();
 };
 
 // Populate notes from chat
@@ -200,6 +258,60 @@ export const populateNotesFromChat = (notes) => {
   Store.set('currentNotes', notes);
   
   displaySubscriberStats(notes);
+};
+
+// ============================================================
+// SUBSCRIPTION DURATION - Auto-counting from anchor date
+// ============================================================
+
+// Format subscription duration from stored anchor date
+// subscribedSince is an ISO date stored ONCE on first detection — never overwritten
+// Display auto-updates every time this renders (now - anchor = live duration)
+const formatSubscriptionDuration = (subscribedSince) => {
+  if (!subscribedSince) return 'Day 1 ✨';
+  
+  const since = new Date(subscribedSince);
+  if (isNaN(since.getTime())) return 'Day 1 ✨';
+  
+  const now = new Date();
+  const diffMs = now - since;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  
+  // Calculate months more accurately using calendar math
+  let months = (now.getFullYear() - since.getFullYear()) * 12 + (now.getMonth() - since.getMonth());
+  if (now.getDate() < since.getDate()) months--; // Haven't reached the day yet this month
+  
+  const years = Math.floor(months / 12);
+  const remainingMonths = months % 12;
+  
+  // Day 1 (same day)
+  if (diffDays === 0) return 'Day 1 ✨';
+  
+  // Days 2-6: "Day X"
+  if (diffDays < 7) return `Day ${diffDays + 1}`;
+  
+  // 1-3 weeks: "X weeks"
+  if (diffDays < 28) {
+    const weeks = Math.floor(diffDays / 7);
+    return `${weeks} week${weeks > 1 ? 's' : ''}`;
+  }
+  
+  // 1-11 months: "X month(s)"
+  if (months > 0 && months < 12) {
+    return `${months} month${months > 1 ? 's' : ''}`;
+  }
+  
+  // 1+ years: "X year(s) Y month(s)" or just "X year(s)"
+  if (years >= 1) {
+    let text = `${years} year${years > 1 ? 's' : ''}`;
+    if (remainingMonths > 0) {
+      text += ` ${remainingMonths}mo`;
+    }
+    return text;
+  }
+  
+  // Fallback for edge case (less than a month but >= 28 days)
+  return `${diffDays} days`;
 };
 
 // Display subscriber stats
@@ -226,23 +338,7 @@ export const displaySubscriberStats = (notes) => {
   if (!isTelegram) {
     const subscribedFor = $('subscribedFor');
     if (subscribedFor) {
-      if (notes.subscribedSince) {
-        const since = new Date(notes.subscribedSince);
-        const now = new Date();
-        const diffDays = Math.floor((now - since) / (1000 * 60 * 60 * 24));
-        
-        let displayText = '';
-        if (diffDays === 0) displayText = 'Day 1 ✨';
-        else if (diffDays < 7) displayText = `${diffDays + 1} day${diffDays !== 0 ? 's' : ''}`;
-        else if (diffDays < 30) displayText = `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) !== 1 ? 's' : ''}`;
-        else if (diffDays < 365) displayText = `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) !== 1 ? 's' : ''}`;
-        else displayText = `${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) !== 1 ? 's' : ''}`;
-        
-        subscribedFor.textContent = displayText;
-      } else {
-        // New subscriber - no subscription date yet means Day 1
-        subscribedFor.textContent = 'Day 1 ✨';
-      }
+      subscribedFor.textContent = formatSubscriptionDuration(notes.subscribedSince);
     }
     
     const totalSpent = $('totalSpent');
@@ -250,4 +346,7 @@ export const displaySubscriberStats = (notes) => {
       totalSpent.textContent = notes.totalSpent || '$0';
     }
   }
+  
+  // Render task days countdown
+  renderTaskDays(notes);
 };

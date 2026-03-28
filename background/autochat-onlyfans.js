@@ -14,7 +14,7 @@ export const OFAutoChatState = {
   autoSendEnabled: false,    // false = queue-only (pre-generate but don't auto-send)
   maxActiveChats: 5,
   waitTimeMinutes: 1,        // Wait 1 minute after their last message
-  pollIntervalMs: 1000,      // Poll chat list every 1 second for fast detection
+  timerCheckIntervalMs: 5000, // Check timers every 5 seconds (no DOM polling)
   
   // Active pool of chats being processed
   activePool: new Map(),     // peerId -> ChatState
@@ -125,28 +125,33 @@ function createChatState(peerId, subscriberName) {
 }
 
 // ============================================================
-// POLLING & MONITORING
+// MONITORING (PUSH-ONLY ARCHITECTURE)
+// ============================================================
+// PERFORMANCE: Background NO LONGER polls content script.
+// All chat list updates come via push from content script's
+// MutationObserver (OF_CHAT_LIST_UPDATED → handleChatListPush).
+// Only a timer-check interval remains (lightweight, no DOM work).
 // ============================================================
 
-let pollInterval = null;
+let timerInterval = null;
 
-// Start monitoring OnlyFans chats
+// Start monitoring OnlyFans chats (push-only — no content script polling)
 export function startOFAutoChat() {
-  if (pollInterval) return;
+  if (timerInterval) return;
   
-  console.log('[OF-AutoChat] Starting monitoring...');
+  console.log('[OF-AutoChat] Starting monitoring (push-only mode)...');
   OFAutoChatState.enabled = true;
   
-  // Initial scan
-  scanAndUpdatePool();
+  // Request ONE initial scan from content script to seed the pool
+  requestInitialScan();
   
-  // Start polling
-  pollInterval = setInterval(() => {
+  // Only run timer checks — no DOM polling
+  // This just checks waitingUntil timestamps and triggers pre-generation
+  timerInterval = setInterval(() => {
     if (OFAutoChatState.enabled) {
-      scanAndUpdatePool();
       processTimers();
     }
-  }, OFAutoChatState.pollIntervalMs);
+  }, OFAutoChatState.timerCheckIntervalMs);
   
   notifyStateChange();
 }
@@ -156,12 +161,34 @@ export function stopOFAutoChat() {
   console.log('[OF-AutoChat] Stopping monitoring...');
   OFAutoChatState.enabled = false;
   
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
   }
   
   notifyStateChange();
+}
+
+// Request a single initial scan from content script (one-time, not polling)
+async function requestInitialScan() {
+  try {
+    const tabs = await chrome.tabs.query({ url: '*://onlyfans.com/*' });
+    if (tabs.length === 0) {
+      console.log('[OF-AutoChat] No OnlyFans tab found for initial scan');
+      return;
+    }
+    
+    const result = await chrome.tabs.sendMessage(tabs[0].id, { 
+      type: 'GET_CHAT_LIST_WITH_TIMESTAMPS' 
+    });
+    
+    if (result?.success && result.chats) {
+      console.log(`[OF-AutoChat] Initial scan: ${result.chats.length} chats`);
+      handleChatListPush(result.chats);
+    }
+  } catch (error) {
+    console.log('[OF-AutoChat] Initial scan failed (content script may not be ready):', error.message);
+  }
 }
 
 // Scan chat list and update active pool
@@ -930,10 +957,36 @@ function isUserBlocked(rawId) {
 }
 
 // ============================================================
-// STATE NOTIFICATIONS
+// STATE NOTIFICATIONS (DEBOUNCED)
+// ============================================================
+// PERFORMANCE: Debounce state broadcasts to max 2/second.
+// Prevents serialization storms when multiple updates fire rapidly
+// (e.g., during pool updates from push handler).
 // ============================================================
 
+let _notifyDebounceTimer = null;
+const NOTIFY_DEBOUNCE_MS = 500; // Max 2 broadcasts per second
+
 function notifyStateChange() {
+  // Debounce: coalesce rapid updates into a single broadcast
+  if (_notifyDebounceTimer) return;
+  
+  _notifyDebounceTimer = setTimeout(() => {
+    _notifyDebounceTimer = null;
+    _doNotifyStateChange();
+  }, NOTIFY_DEBOUNCE_MS);
+}
+
+// Force immediate notification (for critical state changes like send completion)
+function notifyStateChangeImmediate() {
+  if (_notifyDebounceTimer) {
+    clearTimeout(_notifyDebounceTimer);
+    _notifyDebounceTimer = null;
+  }
+  _doNotifyStateChange();
+}
+
+function _doNotifyStateChange() {
   // Convert Map to array for transmission
   const poolArray = Array.from(OFAutoChatState.activePool.entries()).map(([peerId, chat]) => ({
     peerId,

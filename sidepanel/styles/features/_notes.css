@@ -227,3 +227,577 @@
   font-weight: bold;
   margin-right: 6px;
 }
+
+/* ===========================================
+   Subscriber Groups — Notes Tab
+   =========================================== */
+
+.subscriber-group-section {
+  position: relative;
+}
+
+/* Section container */
+.sg-section {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+}
+
+.sg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.sg-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sg-manage-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.sg-manage-btn:hover {
+  background: var(--surface-hover);
+}
+
+/* Current group display */
+.sg-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--sg-color) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sg-color) 40%, transparent);
+  color: var(--sg-color);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  max-width: 180px;
+}
+
+.sg-badge-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.sg-badge-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sg-badge-remove {
+  background: none;
+  border: none;
+  color: var(--sg-color);
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+  transition: opacity var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.sg-badge-remove:hover {
+  opacity: 1;
+}
+
+.sg-no-group {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.sg-assign-btn {
+  margin-left: auto;
+  padding: 4px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sg-assign-btn:hover {
+  background: rgba(255, 107, 157, 0.08);
+  border-color: var(--primary);
+}
+
+.sg-empty {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 4px 0;
+}
+
+/* ---- Group Assign Dropdown ---- */
+
+.sg-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  margin-top: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.sg-dropdown.open {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.sg-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  text-align: left;
+}
+
+.sg-dropdown-item:hover {
+  background: var(--surface-hover);
+}
+
+.sg-dropdown-item.active {
+  background: color-mix(in srgb, var(--sg-color) 10%, transparent);
+}
+
+.sg-dropdown-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+}
+
+.sg-dropdown-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sg-dropdown-check {
+  color: var(--sg-color);
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.sg-dropdown-none {
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+}
+
+.sg-dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 2px 0;
+}
+
+.sg-dropdown-new {
+  color: var(--primary);
+  font-weight: 500;
+}
+
+/* ---- Group Manager Overlay ---- */
+
+.sg-manager-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.sg-manager-overlay.active {
+  opacity: 1;
+}
+
+.sg-manager {
+  width: 90%;
+  max-width: 360px;
+  max-height: 80vh;
+  background: var(--background);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: scale(0.95);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sg-manager-overlay.active .sg-manager {
+  transform: scale(1);
+}
+
+.sg-manager-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sg-manager-header h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+}
+
+.sg-manager-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.sg-manager-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sg-manager-footer .btn {
+  width: 100%;
+}
+
+/* Manager empty state */
+.sg-manager-empty {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--text-secondary);
+}
+
+.sg-manager-empty-icon {
+  font-size: 36px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.sg-manager-empty p {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  margin: 0 0 4px;
+}
+
+.sg-manager-empty small {
+  font-size: var(--font-size-xs);
+}
+
+/* Manager list items */
+.sg-manager-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-light);
+  transition: background var(--transition-fast);
+}
+
+.sg-manager-item:last-child {
+  border-bottom: none;
+}
+
+.sg-manager-item:hover {
+  background: var(--surface);
+}
+
+.sg-manager-item-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.sg-manager-icon {
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--sg-color) 15%, transparent);
+  flex-shrink: 0;
+}
+
+.sg-manager-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sg-manager-name {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sg-manager-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.sg-manager-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.sg-action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.sg-action-btn:hover {
+  background: var(--surface-hover);
+}
+
+.sg-action-danger:hover {
+  background: rgba(244, 67, 54, 0.1);
+}
+
+/* ---- Group Editor (inline in manager) ---- */
+
+.sg-editor {
+  padding: 16px;
+}
+
+.sg-editor-title {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  margin: 0 0 14px;
+  color: var(--text);
+}
+
+.sg-editor-field {
+  margin-bottom: 14px;
+}
+
+.sg-editor-field label {
+  display: block;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sg-editor-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  font-family: inherit;
+  transition: border-color var(--transition-fast);
+}
+
+.sg-editor-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+/* Color swatches */
+.sg-color-grid {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sg-color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+
+.sg-color-swatch:hover {
+  transform: scale(1.15);
+}
+
+.sg-color-swatch.active {
+  border-color: #fff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+  transform: scale(1.15);
+}
+
+/* Icon grid */
+.sg-icon-grid {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.sg-icon-option {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1.5px solid transparent;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 15px;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+
+.sg-icon-option:hover {
+  background: var(--surface-hover);
+  border-color: var(--border);
+}
+
+.sg-icon-option.active {
+  border-color: var(--primary);
+  background: rgba(255, 107, 157, 0.1);
+}
+
+.sg-editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.sg-editor-actions .btn {
+  flex: 1;
+}
+
+/* ---- Broadcast Group Filter Pills ---- */
+
+.mm-group-section {
+  margin-bottom: 14px;
+}
+
+.mm-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #888);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mm-group-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mm-group-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 16px;
+  border: 1.5px solid color-mix(in srgb, var(--sg-color, #888) 40%, transparent);
+  background: transparent;
+  color: var(--text, #fff);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.mm-group-pill:hover {
+  background: color-mix(in srgb, var(--sg-color, #888) 8%, transparent);
+  border-color: var(--sg-color, #888);
+}
+
+.mm-group-pill.selected {
+  background: color-mix(in srgb, var(--sg-color, #888) 18%, transparent);
+  border-color: var(--sg-color, #888);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--sg-color, #888) 15%, transparent);
+}
+
+.mm-group-pill-icon {
+  font-size: 12px;
+}
+
+.mm-group-pill-check {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1.5px solid color-mix(in srgb, var(--sg-color, #888) 50%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: transparent;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.mm-group-pill.selected .mm-group-pill-check {
+  background: var(--sg-color, #888);
+  border-color: var(--sg-color, #888);
+  color: #fff;
+}
+
+.mm-group-none {
+  font-size: 11px;
+  color: var(--text-secondary, #666);
+  padding: 4px 0;
+}

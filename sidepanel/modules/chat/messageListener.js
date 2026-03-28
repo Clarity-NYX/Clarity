@@ -6,7 +6,7 @@ import Store from '../../state/store.js';
 import { hideError, showNotification } from '../../utils/notify.js';
 import { checkGoalCompletion } from '../scripts/index.js';
 import { handleIncomingMessages } from './chatSync.js';
-import { syncNewMessagesToDatabase } from './chatStorage.js';
+import { syncNewMessagesToDatabase, saveFullChatReplacement } from './chatStorage.js';
 import { renderChatMessages, displaySubscriberStats } from './chatRenderer.js';
 import { updateUnreadChats, handleNewUnreadDetected } from './chatAlarm.js';
 import { loadChatList, renderChatList, updateAutoChatState } from './chatList.js';
@@ -125,7 +125,8 @@ export const setupMessageListener = () => {
       renderChatMessages();
       
       if (Store.get('currentProfile') && Store.get('currentSubscriberId')) {
-        syncNewMessagesToDatabase([newMsg]);
+        // Force immediate save — new messages must not be lost to debounce
+        saveFullChatReplacement(messages, true);
         
         // If this is OUR message, check if goal was achieved
         if (newMsg.isFromMe) {

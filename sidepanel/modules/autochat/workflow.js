@@ -616,7 +616,7 @@ export async function triggerAIGeneration(peerId, autoSend = false) {
               // using the action's goal to guide the AI response
               console.log('[Workflow] 💬 Generating follow-up text for media action...');
               try {
-                const aiModule = await import('../ai.js');
+                const aiModule = await import('../ai/index.js');
                 const rawResponse = await aiModule.generateResponseText();
                 
                 if (rawResponse) {
@@ -914,7 +914,7 @@ export async function triggerAIGeneration(peerId, autoSend = false) {
     renderAutoChatPanel();
     console.log('[Workflow] 📝 Generating AI response...');
     
-    const aiModule = await import('../ai.js');
+    const aiModule = await import('../ai/index.js');
     const rawResponse = await aiModule.generateResponseText();
     
     if (!rawResponse) {

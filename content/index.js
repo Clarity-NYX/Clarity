@@ -30,10 +30,17 @@ import {
     loadTypingSpeed();
     setupTypingSpeedListener();
     
-    // Start chat list observer and polling for auto-chat push updates
+    // Start chat list monitoring for auto-chat push updates
+    // Observer is PRIMARY — polling only starts as fallback if observer can't attach
     if (window.location.href.includes('onlyfans.com')) {
-      setTimeout(startChatListObserver, 2000);
-      setTimeout(startChatListPolling, 1500); // Start 1-second polling
+      setTimeout(() => {
+        startChatListObserver();
+        // Polling will only start if observer fails to attach (see dom-observer.js)
+        // Give observer 3 seconds to find its container before starting fallback
+        setTimeout(() => {
+          startChatListPolling(); // No-ops if observer is already active
+        }, 3000);
+      }, 2000);
     }
     
     // Vault scanner functionality removed
@@ -85,8 +92,9 @@ import {
       
       // Handle image sending request (for OnlyFans)
       if (message.type === 'SEND_IMAGE') {
-        console.log('[Clarity] 📸 Image send requested');
-        sendImageToChat(message.imageUrl, message.caption, message.price || 0)
+        const autoSend = message.autoSend !== undefined ? message.autoSend : true;
+        console.log('[Clarity] 📸 Image send requested', autoSend ? '' : '(stage only)');
+        sendImageToChat(message.imageUrl, message.caption, message.price || 0, autoSend)
           .then(result => {
             console.log('[Clarity] 📸 Image send result:', result);
             sendResponse(result);

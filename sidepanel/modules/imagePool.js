@@ -1,12 +1,20 @@
 // Media Pool Module
 // Manages a pool of images AND videos for auto-responses (Telegram & OnlyFans)
+// Media files are stored in Firebase Storage (via signed URLs)
+// Only metadata + downloadURL are kept in localStorage
+
+import { storeImage as uploadToStorage, deleteImage as deleteFromStorage } from './scripts/imageStorage.js';
 
 const STORAGE_KEY = 'clarity_image_pool';
+const VAULTS_KEY = 'clarity_vaults';
 const SENT_IMAGES_KEY = 'clarity_sent_images'; // Track sent media per subscriber
 let imagePool = [];
+let vaults = []; // [{ id, name, createdAt }]
 let pendingMediaData = null;
 let pendingMediaType = 'image'; // 'image' or 'video'
 let sentImagesMap = {}; // { subscriberId: [mediaId1, mediaId2, ...] }
+let _poolLoaded = false;
+let _vaultsLoaded = false;
 
 // Supported media types
 const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -16,14 +24,16 @@ const MAX_VIDEO_SIZE_MB = 50; // Max 50MB for videos
 // Initialize
 export function init() {
   loadPool();
+  loadVaults();
   loadSentImagesMap();
   setupEventListeners();
   renderPool();
-  console.log('[ImagePool] Initialized with', imagePool.length, 'images');
+  console.log('[ImagePool] Initialized with', imagePool.length, 'images,', vaults.length, 'vaults');
 }
 
 // Load pool from localStorage
 function loadPool() {
+  if (_poolLoaded) return;
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -33,6 +43,13 @@ function loadPool() {
     console.error('[ImagePool] Error loading pool:', e);
     imagePool = [];
   }
+  _poolLoaded = true;
+}
+
+// Ensure pool is loaded before any operation
+function ensureLoaded() {
+  if (!_poolLoaded) loadPool();
+  if (!_vaultsLoaded) loadVaults();
 }
 
 // Load sent images tracking from localStorage
@@ -41,10 +58,48 @@ function loadSentImagesMap() {
     const stored = localStorage.getItem(SENT_IMAGES_KEY);
     if (stored) {
       sentImagesMap = JSON.parse(stored);
+      // PERFORMANCE: Prune on load to prevent unbounded growth
+      pruneSentImagesMap();
     }
   } catch (e) {
     console.error('[ImagePool] Error loading sent images map:', e);
     sentImagesMap = {};
+  }
+}
+
+// PERFORMANCE: Prune sentImagesMap to prevent unbounded localStorage growth
+// Keeps only the most recent entries per subscriber
+function pruneSentImagesMap(maxPerSubscriber = 200, maxSubscribers = 500) {
+  let pruned = false;
+  
+  // Cap entries per subscriber
+  for (const [subId, sentIds] of Object.entries(sentImagesMap)) {
+    if (sentIds.length > maxPerSubscriber) {
+      sentImagesMap[subId] = sentIds.slice(-maxPerSubscriber);
+      pruned = true;
+    }
+  }
+  
+  // Remove empty subscriber entries
+  for (const subId of Object.keys(sentImagesMap)) {
+    if (!sentImagesMap[subId] || sentImagesMap[subId].length === 0) {
+      delete sentImagesMap[subId];
+      pruned = true;
+    }
+  }
+  
+  // Cap total subscribers (keep most recent by key insertion order)
+  const subscriberIds = Object.keys(sentImagesMap);
+  if (subscriberIds.length > maxSubscribers) {
+    const toRemove = subscriberIds.slice(0, subscriberIds.length - maxSubscribers);
+    for (const subId of toRemove) {
+      delete sentImagesMap[subId];
+    }
+    pruned = true;
+  }
+  
+  if (pruned) {
+    console.log(`[ImagePool] Pruned sentImagesMap: ${Object.keys(sentImagesMap).length} subscribers`);
   }
 }
 
@@ -64,6 +119,7 @@ function savePool() {
     updateStats();
   } catch (e) {
     console.error('[ImagePool] Error saving pool:', e);
+    throw e; // Re-throw so callers can detect save failures (e.g. QuotaExceededError)
   }
 }
 
@@ -239,8 +295,8 @@ function hideAddForm() {
   pendingMediaType = 'image';
 }
 
-// Save new media to pool
-function saveNewImage() {
+// Save new media to pool (uploads to Firebase Storage)
+async function saveNewImage() {
   if (!pendingMediaData) return;
   
   const nameInput = document.getElementById('newImageName');
@@ -255,25 +311,46 @@ function saveNewImage() {
   const tagsStr = tagsInput?.value?.trim() || '';
   const tags = tagsStr ? tagsStr.split(',').map(t => t.trim().toLowerCase()).filter(t => t) : [];
   
-  const newMedia = {
-    id: `${pendingMediaType === 'video' ? 'vid' : 'img'}_${Date.now()}`,
-    name,
-    description,
-    category,
-    tags,
-    mediaType: pendingMediaType, // 'image' or 'video'
-    imageData: pendingMediaData, // base64 data (for both images and videos)
-    createdAt: Date.now(),
-    usageCount: 0,
-    lastUsed: null
-  };
+  // Disable save button while uploading
+  const saveBtn = document.getElementById('saveNewImageBtn');
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '⏳ Uploading...'; }
   
-  imagePool.push(newMedia);
-  savePool();
-  renderPool();
-  hideAddForm();
+  const mediaData = pendingMediaData;
+  const mediaType = pendingMediaType;
   
-  console.log(`[MediaPool] Added ${pendingMediaType}:`, name);
+  try {
+    // Upload to Firebase Storage
+    const storageResult = await uploadToStorage(mediaData, {
+      scriptId: 'vault',
+      mediaType
+    });
+    
+    const newMedia = {
+      id: storageResult.id || `${mediaType === 'video' ? 'vid' : 'img'}_${Date.now()}`,
+      name,
+      description,
+      category,
+      tags,
+      mediaType,
+      downloadURL: storageResult.downloadURL,
+      storagePath: storageResult.storagePath,
+      createdAt: Date.now(),
+      usageCount: 0,
+      lastUsed: null
+    };
+    
+    imagePool.push(newMedia);
+    savePool();
+    renderPool();
+    hideAddForm();
+    
+    console.log(`[MediaPool] ☁️ Added ${mediaType} to Firebase Storage:`, name);
+  } catch (err) {
+    console.error('[MediaPool] Upload failed:', err);
+    alert('Failed to upload media. Please try again.');
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = '💾 Save'; }
+  }
 }
 
 // Cancel adding new image
@@ -281,8 +358,59 @@ function cancelNewImage() {
   hideAddForm();
 }
 
-// Delete image from pool
-export function deleteImage(imageId) {
+// Add image/video to pool programmatically (used by vault)
+// Uploads to Firebase Storage, stores only metadata + downloadURL in localStorage
+export async function addImage(mediaData, mediaType = 'image', name = '', vaultId = 'default') {
+  ensureLoaded();
+  const defaultName = mediaType === 'video' ? `Video ${imagePool.length + 1}` : `Image ${imagePool.length + 1}`;
+  
+  // Upload to Firebase Storage
+  const storageResult = await uploadToStorage(mediaData, {
+    scriptId: 'vault',
+    mediaType
+  });
+  
+  const newMedia = {
+    id: storageResult.id || `${mediaType === 'video' ? 'vid' : 'img'}_${Date.now()}`,
+    name: name || defaultName,
+    description: '',
+    category: 'other',
+    tags: [],
+    mediaType,
+    downloadURL: storageResult.downloadURL,
+    storagePath: storageResult.storagePath,
+    vaultId: vaultId || 'default',
+    createdAt: Date.now(),
+    usageCount: 0,
+    lastUsed: null
+  };
+  
+  imagePool.push(newMedia);
+  
+  try {
+    savePool();
+  } catch (e) {
+    // Revert on save failure
+    imagePool.pop();
+    throw e;
+  }
+  
+  console.log(`[ImagePool] ☁️ Added ${mediaType}: ${newMedia.name} (Firebase Storage)`);
+  return newMedia;
+}
+
+// Delete image from pool (and from Firebase Storage if stored there)
+export async function deleteImage(imageId) {
+  ensureLoaded();
+  const item = imagePool.find(img => img.id === imageId);
+  
+  // Delete from Firebase Storage if it has a storagePath
+  if (item?.storagePath) {
+    deleteFromStorage(item.storagePath).catch(err => {
+      console.warn('[ImagePool] Failed to delete from Storage (continuing):', err);
+    });
+  }
+  
   imagePool = imagePool.filter(img => img.id !== imageId);
   savePool();
   renderPool();
@@ -531,21 +659,86 @@ function getCategoryLabel(category) {
 }
 
 // ============================================================
+// VAULT MANAGEMENT - Named collections for organizing media
+// ============================================================
+
+function loadVaults() {
+  if (_vaultsLoaded) return;
+  try {
+    const stored = localStorage.getItem(VAULTS_KEY);
+    if (stored) vaults = JSON.parse(stored);
+  } catch (_) { vaults = []; }
+  // Ensure default vault exists
+  if (!vaults.find(v => v.id === 'default')) {
+    vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
+    saveVaults();
+  }
+  _vaultsLoaded = true;
+}
+
+function saveVaults() {
+  try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
+}
+
+export function getVaults() { ensureLoaded(); return [...vaults]; }
+
+export function createVault(name) {
+  ensureLoaded();
+  const id = `vault_${Date.now()}`;
+  const v = { id, name: name.trim() || 'Untitled', createdAt: Date.now() };
+  vaults.push(v);
+  saveVaults();
+  return v;
+}
+
+export function renameVault(vaultId, newName) {
+  ensureLoaded();
+  if (vaultId === 'default') return;
+  const v = vaults.find(x => x.id === vaultId);
+  if (v) { v.name = newName.trim() || v.name; saveVaults(); }
+}
+
+export function deleteVault(vaultId) {
+  ensureLoaded();
+  if (vaultId === 'default') return;
+  // Move orphaned media to default
+  imagePool.forEach(img => { if (img.vaultId === vaultId) img.vaultId = 'default'; });
+  savePool();
+  vaults = vaults.filter(v => v.id !== vaultId);
+  saveVaults();
+}
+
+export function getImagesByVault(vaultId) {
+  ensureLoaded();
+  if (!vaultId || vaultId === 'all') return [...imagePool];
+  return imagePool.filter(img => (img.vaultId || 'default') === vaultId);
+}
+
+export function moveMediaToVault(mediaId, vaultId) {
+  ensureLoaded();
+  const img = imagePool.find(m => m.id === mediaId);
+  if (img) { img.vaultId = vaultId; savePool(); }
+}
+
+// ============================================================
 // PUBLIC API - Used by autochat/workflow
 // ============================================================
 
 // Get all images
 export function getImages() {
+  ensureLoaded();
   return [...imagePool];
 }
 
 // Get image by ID
 export function getImageById(id) {
+  ensureLoaded();
   return imagePool.find(img => img.id === id);
 }
 
 // Find best matching image for a query
 export function findBestMatch(query) {
+  ensureLoaded();
   if (imagePool.length === 0) return null;
   
   const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
@@ -603,6 +796,7 @@ export function findBestMatch(query) {
 
 // Mark image as used
 export function markImageUsed(imageId) {
+  ensureLoaded();
   const image = imagePool.find(img => img.id === imageId);
   if (image) {
     image.usageCount++;
@@ -614,6 +808,7 @@ export function markImageUsed(imageId) {
 
 // Get random image (with optional category filter)
 export function getRandomImage(category = null) {
+  ensureLoaded();
   let pool = imagePool;
   
   if (category) {
@@ -647,6 +842,7 @@ export function hide() {
 
 // Mark an image as sent to a subscriber
 export function markImageSentToSubscriber(subscriberId, imageId) {
+  ensureLoaded();
   if (!subscriberId || !imageId) return;
   
   // Normalize subscriber ID (remove "tg:" prefix if present)
@@ -678,6 +874,7 @@ export function markImageSentToSubscriber(subscriberId, imageId) {
 // Check if an image has been sent to a subscriber
 // Checks multiple possible identifiers (id, name, downloadURL, normalized versions)
 export function hasImageBeenSentToSubscriber(subscriberId, imageIdOrObject) {
+  ensureLoaded();
   if (!subscriberId || !imageIdOrObject) return false;
   
   const cleanSubscriberId = subscriberId.toString().replace(/^tg:/, '');
@@ -719,10 +916,38 @@ export function hasImageBeenSentToSubscriber(subscriberId, imageIdOrObject) {
 
 // Get all sent image IDs for a subscriber
 export function getSentImagesForSubscriber(subscriberId) {
+ensureLoaded();
   if (!subscriberId) return [];
-  
+
   const cleanSubscriberId = subscriberId.toString().replace(/^tg:/, '');
   return sentImagesMap[cleanSubscriberId] || [];
+}
+
+// Unmark an image as sent to a subscriber (toggle off)
+export function unmarkImageSentToSubscriber(subscriberId, imageId) {
+  ensureLoaded();
+  if (!subscriberId || !imageId) return;
+
+  const cleanSubscriberId = subscriberId.toString().replace(/^tg:/, '');
+  const sentImages = sentImagesMap[cleanSubscriberId];
+  if (!sentImages || sentImages.length === 0) return;
+
+  // Normalize the provided imageId
+  let normalizedImageId = imageId.toString();
+  if (normalizedImageId.includes('firebase') || normalizedImageId.includes('http')) {
+    const urlParts = normalizedImageId.split('/');
+    normalizedImageId = urlParts[urlParts.length - 1].split('?')[0];
+  }
+
+  // Remove all matching entries (raw + normalized)
+  const before = sentImages.length;
+  sentImagesMap[cleanSubscriberId] = sentImages.filter(id => id !== imageId && id !== normalizedImageId);
+  const removed = before - sentImagesMap[cleanSubscriberId].length;
+
+  if (removed > 0) {
+    saveSentImagesMap();
+    console.log(`[ImagePool] ↩️ Unmarked image "${normalizedImageId}" as sent to ${cleanSubscriberId}`);
+  }
 }
 
 // Helper: Normalize image ID for consistent tracking
@@ -738,6 +963,7 @@ function normalizeImageId(id) {
 
 // Get images that have NOT been sent to a subscriber (filtered list)
 export function getUnsentImagesForSubscriber(subscriberId, images = null) {
+  ensureLoaded();
   const pool = images || imagePool;
   if (pool.length === 0) return [];
   
@@ -772,6 +998,7 @@ export function getUnsentImagesForSubscriber(subscriberId, images = null) {
 
 // Get first unsent image from a list (for script pool or global pool)
 export function getFirstUnsentImage(subscriberId, images = null) {
+  ensureLoaded();
   const unsent = getUnsentImagesForSubscriber(subscriberId, images);
   if (unsent.length === 0) {
     console.log('[ImagePool] ⚠️ All images have been sent to this subscriber!');
@@ -782,6 +1009,7 @@ export function getFirstUnsentImage(subscriberId, images = null) {
 
 // Clear sent images history for a subscriber (for testing/reset)
 export function clearSentImagesForSubscriber(subscriberId) {
+  ensureLoaded();
   if (!subscriberId) return;
   
   const cleanSubscriberId = subscriberId.toString().replace(/^tg:/, '');
@@ -792,6 +1020,7 @@ export function clearSentImagesForSubscriber(subscriberId) {
 
 // Get stats about sent images
 export function getSentImagesStats() {
+  ensureLoaded();
   const totalSubscribers = Object.keys(sentImagesMap).length;
   let totalSent = 0;
   for (const subscriberId of Object.keys(sentImagesMap)) {

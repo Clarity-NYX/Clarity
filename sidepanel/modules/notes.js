@@ -235,6 +235,8 @@ export const saveNotesToDB = async (notes = null) => {
     
     if (response.success) {
       Store.set('currentNotes', notesToSave);
+      // Update cache so next load returns fresh data
+      notesCache.set(subscriberId, notesToSave);
       if (!notes) showNotification('Notes saved!');
       return true;
     }
@@ -273,6 +275,13 @@ export const clearNotes = () => {
     hobbies: '', kinks: '', other: ''
   };
   displayNotes(emptyNotes);
+  // Also save the cleared notes and update cache
+  const subscriberId = getCurrentSubscriberId();
+  if (subscriberId) {
+    notesCache.clear(subscriberId);
+  }
+  Store.set('currentNotes', emptyNotes);
+  saveNotesToDB(emptyNotes);
   showNotification('Notes cleared');
 };
 

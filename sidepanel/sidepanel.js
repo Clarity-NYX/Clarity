@@ -12,10 +12,10 @@ import { $, $$ } from './utils/dom.js';
 // Modules
 import { showMainApp, showAuthPanel, setupAuthListeners } from './modules/auth.js';
 import { loadProfiles, setupProfileListeners } from './modules/profiles.js';
-import { renderChatMessages, setupMessageListener, loadAndSyncChat, setupTabWatcher, setupChatListListeners, forceRefreshSubscriberStats } from './modules/chat.js';
+import { renderChatMessages, setupMessageListener, loadAndSyncChat, setupTabWatcher, setupChatListListeners, forceRefreshSubscriberStats, setupVault } from './modules/chat.js';
 import { loadNotes, setupNotesListeners } from './modules/notes.js';
 import { loadScripts, renderScriptStages, renderScriptList, setupScriptsListeners } from './modules/scripts/index.js';
-import { setupAIListeners } from './modules/ai.js';
+import { setupAIListeners } from './modules/ai/index.js';
 import { loadSettings, setupSettingsListeners } from './modules/settings.js';
 import { loadCredits, setupCreditsListeners } from './modules/credits.js';
 import { initPlatform, checkPlatformSelection, showPlatformSelector, hidePlatformSelector } from './modules/platform.js';
@@ -25,6 +25,9 @@ import { initOFAutoChat, renderOFAutoChatPanel } from './modules/autochat-onlyfa
 import { initVoice, renderVoiceGeneratorPanel } from './modules/voice.js';
 import { initNotifications } from './modules/notifications.js';
 import * as ImagePool from './modules/imagePool.js';
+import { initBroadcast, openBroadcastModal, closeBroadcastModal } from './modules/broadcast.js';
+import { initLearning, setupLearningListeners } from './modules/learning.js';
+import { initSubscriberGroups, renderGroupPicker } from './modules/subscriberGroups.js';
 
 // ============================================================
 // TAB SWITCHING
@@ -48,7 +51,10 @@ const switchTab = (tabName) => {
   }
   
   // Tab-specific actions
-  if (tabName === 'notes') loadNotes();
+  if (tabName === 'notes') {
+    loadNotes();
+    renderGroupPicker();
+  }
   if (tabName === 'scripts') renderScriptList();
 };
 
@@ -70,6 +76,12 @@ const setupEventListeners = () => {
   setupSettingsListeners();
   setupCreditsListeners();
   setupChatListListeners();
+  
+  // Media vault
+  setupVault();
+  
+  // Learning module (Save for Training button)
+  setupLearningListeners();
   
   // Initialize profile menu and settings panel in chat tab
   initProfileMenu();
@@ -205,6 +217,27 @@ const init = async () => {
         ImagePool.show();
       } else {
         ImagePool.hide();
+      }
+      
+      // Initialize Subscriber Groups (localStorage-backed, must be before Broadcast)
+      console.log('[Sidepanel] 👥 Initializing Subscriber Groups...');
+      initSubscriberGroups();
+      
+      // Initialize Broadcast module
+      console.log('[Sidepanel] 📢 Initializing Broadcast...');
+      initBroadcast();
+      
+      // Broadcast button & modal listeners
+      $('broadcastBtn')?.addEventListener('click', openBroadcastModal);
+      $('broadcastCloseBtn')?.addEventListener('click', closeBroadcastModal);
+      document.querySelector('.broadcast-backdrop')?.addEventListener('click', closeBroadcastModal);
+      
+      // Initialize Learning module (admin-only, shows 📚 save button)
+      console.log('[Sidepanel] 🧠 Initializing Learning...');
+      try {
+        await initLearning();
+      } catch (e) {
+        console.error('Learning init error:', e);
       }
     } else {
       showAuthPanel();

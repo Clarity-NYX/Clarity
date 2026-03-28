@@ -97,9 +97,9 @@ export const PPV_SELECTORS = {
 
 // Polling intervals
 export const INTERVALS = {
-  urlCheck: 300,         // Check URL changes every 300ms
+  // urlCheck: REMOVED — replaced by History API interception (zero-cost, event-driven)
   messagePolling: 1500,  // Check for new messages every 1.5s
-  chatListPolling: 10000 // Check chat list every 10s for auto-chat (reduced from 1s)
+  chatListPolling: 10000 // Fallback polling only — MutationObserver is primary
 };
 
 // Smart polling intervals based on activity
