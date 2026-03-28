@@ -17,6 +17,7 @@ let sentImagesMap = {}; // { subscriberId: [mediaId1, mediaId2, ...] }
 let _poolLoaded = false;
 let _vaultsLoaded = false;
 let _cloudSynced = false; // Whether we've pulled from server this session
+let _lastSyncTime = 0;    // Timestamp of last successful sync
 
 // ============================================================
 // CLOUD SYNC — Debounced push to Firestore via server API
@@ -233,16 +234,24 @@ function _onVisibilityChange() {
   }
 }
 
-// Pull all vault data from server — called once on init
+// Pull all vault data from server — called once on init (or re-called if pool was empty)
 async function syncFromServer() {
-  if (_cloudSynced) return;
+  // Allow re-sync if first sync returned empty pool (other device may not have pushed yet)
+  if (_cloudSynced && imagePool.length > 0) return;
+
   try {
+    console.log(`[ImagePool] ☁️ Starting cloud sync... (local pool: ${imagePool.length} items)`);
     const data = await apiRequest('/storage/vault');
-    if (!data.success) return;
+    if (!data.success) {
+      console.warn('[ImagePool] ⚠️ Server returned error for vault fetch');
+      return;
+    }
 
     const serverPool = Array.isArray(data.pool) ? data.pool : [];
     const serverVaults = Array.isArray(data.vaults) ? data.vaults : [];
     const serverSent = (data.sent && typeof data.sent === 'object') ? data.sent : {};
+
+    console.log(`[ImagePool] ☁️ Server data: ${serverPool.length} pool items, ${serverVaults.length} vaults, ${Object.keys(serverSent).length} sent tracks`);
 
     // Merge strategy: Server data + any local-only items not yet synced
     // Always run merge — covers both directions:
@@ -254,8 +263,9 @@ async function syncFromServer() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
     updateStats();
     if (localOnlyPool.length > 0) {
-      console.log(`[ImagePool] 🔄 Pushing ${localOnlyPool.length} local-only items to server`);
-      pushPoolToServer(); // Immediate push (not debounced) — first sync is critical
+      console.log(`[ImagePool] 🔄 Pushing ${localOnlyPool.length} local-only items to server...`);
+      await pushPoolToServer(); // AWAIT — must complete before proceeding
+      console.log(`[ImagePool] ✅ Local items pushed to server successfully`);
     }
 
     // Merge vaults
@@ -267,7 +277,7 @@ async function syncFromServer() {
     }
     try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
     if (localOnlyVaults.length > 0) {
-      pushVaultsToServer(); // Immediate push
+      await pushVaultsToServer();
     }
 
     // Merge sent maps: union of both directions
@@ -280,17 +290,16 @@ async function syncFromServer() {
       }
     }
     try { localStorage.setItem(SENT_IMAGES_KEY, JSON.stringify(sentImagesMap)); } catch (_) {}
-    // Push sent map if local has data the server doesn't
     const localSentKeys = Object.keys(sentImagesMap);
     const serverSentKeys = Object.keys(serverSent);
     if (localSentKeys.length > serverSentKeys.length) {
-      pushSentToServer();
+      await pushSentToServer();
     }
 
     _cloudSynced = true;
+    _lastSyncTime = Date.now();
 
     // Capture version timestamps for polling change detection
-    // Fetch version info to seed the polling baseline
     try {
       const versionData = await apiRequest('/storage/vault/version');
       if (versionData.success) {
@@ -314,6 +323,8 @@ async function syncFromServer() {
     startPolling();
   } catch (err) {
     console.warn('[ImagePool] ⚠️ Cloud sync failed (using local cache):', err.message);
+    // Start polling anyway so we can retry later
+    if (!_pollInterval) startPolling();
   }
 }
 
