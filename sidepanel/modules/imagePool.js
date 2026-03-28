@@ -133,7 +133,21 @@ async function refreshDownloadURLs() {
 
 // Check server for remote changes — called every POLL_INTERVAL_MS
 async function pollForChanges() {
-  if (_isSyncing || !_cloudSynced) return; // Don't poll until initial sync is done
+  if (_isSyncing) return;
+
+  // If initial sync hasn't completed yet, retry it instead of polling
+  if (!_cloudSynced) {
+    console.log('[ImagePool] 📡 Initial sync not done — retrying syncFromServer...');
+    _isSyncing = true;
+    try {
+      await syncFromServer();
+      if (_cloudSynced) {
+        renderPool();
+        window.dispatchEvent(new CustomEvent('vault-pool-updated'));
+      }
+    } catch (_) {} finally { _isSyncing = false; }
+    return;
+  }
 
   // Skip when tab is hidden (saves bandwidth)
   if (document.hidden) return;
@@ -236,15 +250,39 @@ function _onVisibilityChange() {
   }
 }
 
+// Wait for Firebase auth to be ready (token available)
+async function waitForAuth(maxWaitMs = 8000) {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      if (typeof FirebaseAuth !== 'undefined') {
+        const user = FirebaseAuth.getCurrentUser();
+        if (user?.idToken) return true;
+      }
+    } catch (_) {}
+    await new Promise(r => setTimeout(r, 500)); // Check every 500ms
+  }
+  return false;
+}
+
 // Pull all vault data from server — CLOUD-FIRST: Firebase is the authoritative source.
-// 1. Fetch server state
-// 2. Push any local-only items to server
-// 3. Re-fetch server state to confirm round-trip
-// 4. Replace local pool with verified server data
+// 1. Wait for auth to be ready
+// 2. Fetch server state
+// 3. Push any local-only items to server
+// 4. Re-fetch server state to confirm round-trip
+// 5. Replace local pool with verified server data
 // This guarantees: what you see = what's on Firebase = what other devices see
 async function syncFromServer() {
   // Allow re-sync if first sync returned empty pool (other device may not have pushed yet)
   if (_cloudSynced && imagePool.length > 0) return;
+
+  // Wait for auth — on fresh installs, FirebaseAuth may not have a token yet
+  const authReady = await waitForAuth();
+  if (!authReady) {
+    console.warn('[ImagePool] ⚠️ Auth not ready after 8s — skipping cloud sync (will retry on next poll)');
+    startPolling(); // Start polling so we can sync when auth becomes available
+    return;
+  }
 
   try {
     console.log(`[ImagePool] ☁️ Cloud-first sync starting... (local cache: ${imagePool.length} items)`);
