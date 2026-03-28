@@ -10,6 +10,7 @@ import { showNotification } from '../../utils/notify.js';
 import {
   getImages,
   addImage,
+  addFile,
   deleteImage,
   markImageUsed,
   markImageSentToSubscriber,
@@ -764,7 +765,7 @@ const removeMedia = (mediaId) => {
 // ============================================================
 
 const MAX_UPLOAD_FILES = 100;
-const MAX_FILE_SIZE_MB = 50;
+const MAX_FILE_SIZE_MB = 2048; // 2GB — uploads go directly to Firebase Storage via signed URLs
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 let isUploading = false; // Prevent concurrent batch uploads
 
@@ -853,7 +854,8 @@ const processFiles = async (fileList) => {
   // Filter out oversized files
   const oversized = files.filter(f => f.size > MAX_FILE_SIZE_BYTES);
   if (oversized.length > 0) {
-    showNotification(`${oversized.length} file(s) skipped (over ${MAX_FILE_SIZE_MB}MB)`);
+    const limitLabel = MAX_FILE_SIZE_MB >= 1024 ? `${(MAX_FILE_SIZE_MB / 1024).toFixed(0)}GB` : `${MAX_FILE_SIZE_MB}MB`;
+    showNotification(`${oversized.length} file(s) skipped (over ${limitLabel})`);
     files = files.filter(f => f.size <= MAX_FILE_SIZE_BYTES);
   }
 
@@ -872,15 +874,15 @@ const processFiles = async (fileList) => {
       try {
         const isVideo = file.type.startsWith('video/');
         const name = file.name.replace(/\.[^.]+$/, '');
-        let mediaData;
 
         if (isHeic(file)) {
-          mediaData = await heicToJpeg(file);
+          // HEIC needs conversion to JPEG first (still uses base64 path)
+          const mediaData = await heicToJpeg(file);
+          await addImage(mediaData, 'image', name, targetVault);
         } else {
-          mediaData = await readFileAsDataURL(file);
+          // Direct File upload — no base64 conversion, supports 2GB+
+          await addFile(file, isVideo ? 'video' : 'image', name, targetVault);
         }
-
-        await addImage(mediaData, isVideo ? 'video' : 'image', name, targetVault);
         successCount++;
       } catch (err) {
         console.error(`[Vault] Failed to upload "${file.name}":`, err);

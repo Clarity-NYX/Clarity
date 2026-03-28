@@ -3,7 +3,7 @@
 // Media files are stored in Firebase Storage (via signed URLs)
 // Metadata synced to Firestore for cross-device access; localStorage as fast cache
 
-import { storeImage as uploadToStorage, deleteImage as deleteFromStorage } from './scripts/imageStorage.js';
+import { storeImage as uploadToStorage, storeFile as uploadFileToStorage, deleteImage as deleteFromStorage } from './scripts/imageStorage.js';
 import { apiRequest } from '../utils/api.js';
 
 const STORAGE_KEY = 'clarity_image_pool';
@@ -12,6 +12,7 @@ const SENT_IMAGES_KEY = 'clarity_sent_images'; // Track sent media per subscribe
 let imagePool = [];
 let vaults = []; // [{ id, name, createdAt }]
 let pendingMediaData = null;
+let pendingMediaFile = null;  // Raw File object for large uploads (avoids base64 memory issues)
 let pendingMediaType = 'image'; // 'image' or 'video'
 let sentImagesMap = {}; // { subscriberId: [mediaId1, mediaId2, ...] }
 let _poolLoaded = false;
@@ -436,7 +437,7 @@ async function syncFromServer() {
 // Supported media types
 const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 const SUPPORTED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/mov'];
-const MAX_VIDEO_SIZE_MB = 50; // Max 50MB for videos
+const MAX_VIDEO_SIZE_MB = 2048; // Max 2GB for videos
 
 // Initialize
 export function init() {
@@ -623,6 +624,7 @@ function setupEventListeners() {
 }
 
 // Handle media file selection (image or video)
+// Uses URL.createObjectURL for preview (no base64 conversion — supports 2GB+ files)
 function handleMediaFile(file) {
   if (!file) return;
   
@@ -636,18 +638,17 @@ function handleMediaFile(file) {
   
   // Check video size
   if (isVideo && file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024) {
-    alert(`Video file is too large. Maximum size is ${MAX_VIDEO_SIZE_MB}MB.`);
+    alert(`Video file is too large. Maximum size is ${(MAX_VIDEO_SIZE_MB / 1024).toFixed(0)}GB.`);
     return;
   }
   
   pendingMediaType = isVideo ? 'video' : 'image';
+  pendingMediaFile = file; // Store raw File for direct upload (no base64 for large files)
   
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    pendingMediaData = e.target.result;
-    showAddForm(pendingMediaData, pendingMediaType);
-  };
-  reader.readAsDataURL(file);
+  // Use object URL for preview — zero memory overhead, works for any file size
+  const previewUrl = URL.createObjectURL(file);
+  pendingMediaData = previewUrl; // Used for preview display only
+  showAddForm(previewUrl, pendingMediaType);
 }
 
 // Show add media form
@@ -717,13 +718,19 @@ function hideAddForm() {
     previewVideo.style.display = 'none';
   }
   
+  // Revoke object URL to free memory
+  if (pendingMediaData && pendingMediaData.startsWith('blob:')) {
+    URL.revokeObjectURL(pendingMediaData);
+  }
   pendingMediaData = null;
+  pendingMediaFile = null;
   pendingMediaType = 'image';
 }
 
 // Save new media to pool (uploads to Firebase Storage)
+// Uses direct File upload (storeFile) when available — supports files up to 2GB
 async function saveNewImage() {
-  if (!pendingMediaData) return;
+  if (!pendingMediaFile && !pendingMediaData) return;
   
   const nameInput = document.getElementById('newImageName');
   const descInput = document.getElementById('newImageDescription');
@@ -745,11 +752,10 @@ async function saveNewImage() {
   const mediaType = pendingMediaType;
   
   try {
-    // Upload to Firebase Storage
-    const storageResult = await uploadToStorage(mediaData, {
-      scriptId: 'vault',
-      mediaType
-    });
+    // Upload to Firebase Storage — use direct File upload when available (supports 2GB+)
+    const storageResult = pendingMediaFile
+      ? await uploadFileToStorage(pendingMediaFile, { scriptId: 'vault', mediaType })
+      : await uploadToStorage(mediaData, { scriptId: 'vault', mediaType });
     
     const newMedia = {
       id: storageResult.id || `${mediaType === 'video' ? 'vid' : 'img'}_${Date.now()}`,
@@ -822,6 +828,45 @@ export async function addImage(mediaData, mediaType = 'image', name = '', vaultI
   }
   
   console.log(`[ImagePool] ☁️ Added ${mediaType}: ${newMedia.name} (Firebase Storage)`);
+  return newMedia;
+}
+
+// Add file to pool directly from a File object (used by vault batch upload)
+// Uploads File directly to Firebase Storage via signed URL — no base64, supports 2GB+
+export async function addFile(file, mediaType = 'image', name = '', vaultId = 'default') {
+  ensureLoaded();
+  const defaultName = mediaType === 'video' ? `Video ${imagePool.length + 1}` : `Image ${imagePool.length + 1}`;
+
+  const storageResult = await uploadFileToStorage(file, {
+    scriptId: 'vault',
+    mediaType
+  });
+
+  const newMedia = {
+    id: storageResult.id || `${mediaType === 'video' ? 'vid' : 'img'}_${Date.now()}`,
+    name: name || defaultName,
+    description: '',
+    category: 'other',
+    tags: [],
+    mediaType,
+    downloadURL: storageResult.downloadURL,
+    storagePath: storageResult.storagePath,
+    vaultId: vaultId || 'default',
+    createdAt: Date.now(),
+    usageCount: 0,
+    lastUsed: null
+  };
+
+  imagePool.push(newMedia);
+
+  try {
+    savePool();
+  } catch (e) {
+    imagePool.pop();
+    throw e;
+  }
+
+  console.log(`[ImagePool] ☁️ Added ${mediaType}: ${newMedia.name} (direct file upload, ${(file.size / 1024 / 1024).toFixed(1)}MB)`);
   return newMedia;
 }
 
