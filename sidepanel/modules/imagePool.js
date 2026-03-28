@@ -78,6 +78,50 @@ async function pushSentToServer() {
   }
 }
 
+// Refresh download URLs for pool items with storagePath (signed URLs expire after 4h)
+async function refreshDownloadURLs() {
+  const itemsNeedingRefresh = imagePool.filter(item => item.storagePath);
+  if (itemsNeedingRefresh.length === 0) return;
+
+  console.log(`[ImagePool] 🔄 Refreshing ${itemsNeedingRefresh.length} download URLs...`);
+
+  try {
+    // Batch refresh via server (max 200 per call)
+    const BATCH_LIMIT = 200;
+    for (let i = 0; i < itemsNeedingRefresh.length; i += BATCH_LIMIT) {
+      const batch = itemsNeedingRefresh.slice(i, i + BATCH_LIMIT);
+      const payload = batch.map(item => ({ id: item.id, storagePath: item.storagePath }));
+
+      const result = await apiRequest('/storage/vault/refresh-urls', {
+        method: 'POST',
+        body: JSON.stringify({ items: payload })
+      });
+
+      if (result.success && Array.isArray(result.items)) {
+        // Apply fresh URLs to pool items
+        for (const refreshed of result.items) {
+          if (refreshed.downloadURL) {
+            const poolItem = imagePool.find(p => p.id === refreshed.id);
+            if (poolItem) {
+              poolItem.downloadURL = refreshed.downloadURL;
+            }
+          }
+        }
+      }
+    }
+
+    // Save refreshed URLs to localStorage (no need to push back to server —
+    // server stores storagePath, URLs are generated fresh each time)
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool));
+    } catch (_) {}
+
+    console.log(`[ImagePool] ✅ Download URLs refreshed for ${itemsNeedingRefresh.length} items`);
+  } catch (err) {
+    console.warn('[ImagePool] ⚠️ URL refresh failed (images may not display):', err.message);
+  }
+}
+
 // Pull all vault data from server — called once on init
 async function syncFromServer() {
   if (_cloudSynced) return;
@@ -133,6 +177,12 @@ async function syncFromServer() {
 
     _cloudSynced = true;
     console.log(`[ImagePool] ☁️ Cloud sync complete: ${imagePool.length} items, ${vaults.length} vaults, ${Object.keys(sentImagesMap).length} subscriber tracks`);
+
+    // Refresh download URLs — signed URLs expire after 4h,
+    // so items synced from server need fresh URLs on this device
+    if (imagePool.length > 0) {
+      await refreshDownloadURLs();
+    }
   } catch (err) {
     console.warn('[ImagePool] ⚠️ Cloud sync failed (using local cache):', err.message);
   }
