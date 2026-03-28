@@ -199,6 +199,8 @@ async function pollForChanges() {
 
     if (needsRender) {
       renderPool();
+      // Notify vault modal (if open) to re-render with fresh data
+      window.dispatchEvent(new CustomEvent('vault-pool-updated'));
       console.log(`[ImagePool] 🔄 Live sync: UI updated with remote changes`);
     }
   } catch (err) {
@@ -345,6 +347,8 @@ export function init() {
   // Pull from server (async, non-blocking) — merges cloud data with local cache
   syncFromServer().then(() => {
     renderPool(); // Re-render with merged data
+    // Notify vault modal (if open) to refresh with synced data
+    window.dispatchEvent(new CustomEvent('vault-pool-updated'));
   }).catch(() => {}); // Errors already logged inside syncFromServer
 }
 

@@ -1010,6 +1010,15 @@ export const setupVault = () => {
   // Drag & drop support
   setupDragAndDrop();
 
+  // Live sync: re-render vault when imagePool updates from cloud (polling or initial sync)
+  window.addEventListener('vault-pool-updated', () => {
+    if (isVaultOpen()) {
+      console.log('[Vault] 🔄 Pool updated from cloud — refreshing vault view');
+      renderVaultSelector();
+      renderVaultGrid();
+    }
+  });
+
   // Re-render vault when subscriber changes (updates sent badges + sent tab)
   Store.subscribe('currentSubscriberId', () => {
     if (isVaultOpen()) {
