@@ -27,6 +27,14 @@ let _vaultsSyncTimer = null;
 let _sentSyncTimer = null;
 const SYNC_DEBOUNCE_MS = 2000; // 2s debounce for server saves
 
+// ============================================================
+// LIVE POLLING — Detect remote changes every 30s
+// ============================================================
+let _pollInterval = null;
+const POLL_INTERVAL_MS = 30000; // 30s between version checks
+let _lastKnownVersions = { pool: 0, vaults: 0, sent: 0 };
+let _isSyncing = false; // Prevent overlapping syncs
+
 function schedulePoolSync() {
   clearTimeout(_poolSyncTimer);
   _poolSyncTimer = setTimeout(() => pushPoolToServer(), SYNC_DEBOUNCE_MS);
@@ -122,6 +130,109 @@ async function refreshDownloadURLs() {
   }
 }
 
+// Check server for remote changes — called every POLL_INTERVAL_MS
+async function pollForChanges() {
+  if (_isSyncing || !_cloudSynced) return; // Don't poll until initial sync is done
+
+  // Skip when tab is hidden (saves bandwidth)
+  if (document.hidden) return;
+
+  try {
+    const data = await apiRequest('/storage/vault/version');
+    if (!data.success) return;
+
+    const serverVersions = {
+      pool: data.poolUpdatedAt || 0,
+      vaults: data.vaultsUpdatedAt || 0,
+      sent: data.sentUpdatedAt || 0
+    };
+
+    // Check if any collection has been updated remotely
+    const poolChanged = serverVersions.pool > _lastKnownVersions.pool;
+    const vaultsChanged = serverVersions.vaults > _lastKnownVersions.vaults;
+    const sentChanged = serverVersions.sent > _lastKnownVersions.sent;
+
+    if (!poolChanged && !vaultsChanged && !sentChanged) return; // No changes
+
+    console.log(`[ImagePool] 🔔 Remote changes detected:`,
+      poolChanged ? 'pool' : '', vaultsChanged ? 'vaults' : '', sentChanged ? 'sent' : '');
+
+    _isSyncing = true;
+
+    // Fetch fresh data from server
+    const fullData = await apiRequest('/storage/vault');
+    if (!fullData.success) { _isSyncing = false; return; }
+
+    let needsRender = false;
+
+    // Update pool if changed
+    if (poolChanged && Array.isArray(fullData.pool)) {
+      imagePool = fullData.pool;
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
+      needsRender = true;
+    }
+
+    // Update vaults if changed
+    if (vaultsChanged && Array.isArray(fullData.vaults)) {
+      vaults = fullData.vaults;
+      if (!vaults.find(v => v.id === 'default')) {
+        vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
+      }
+      try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
+      needsRender = true;
+    }
+
+    // Update sent map if changed
+    if (sentChanged && fullData.sent && typeof fullData.sent === 'object') {
+      sentImagesMap = fullData.sent;
+      try { localStorage.setItem(SENT_IMAGES_KEY, JSON.stringify(sentImagesMap)); } catch (_) {}
+    }
+
+    // Update version tracking
+    _lastKnownVersions = serverVersions;
+
+    // Refresh download URLs for new/updated pool items
+    if (poolChanged && imagePool.length > 0) {
+      await refreshDownloadURLs();
+    }
+
+    if (needsRender) {
+      renderPool();
+      console.log(`[ImagePool] 🔄 Live sync: UI updated with remote changes`);
+    }
+  } catch (err) {
+    // Silent fail — polling errors are not critical
+    console.debug('[ImagePool] Poll check failed:', err.message);
+  } finally {
+    _isSyncing = false;
+  }
+}
+
+// Start live polling for cross-device changes
+function startPolling() {
+  stopPolling(); // Clear any existing interval
+  _pollInterval = setInterval(pollForChanges, POLL_INTERVAL_MS);
+  console.log(`[ImagePool] 📡 Live polling started (every ${POLL_INTERVAL_MS / 1000}s)`);
+
+  // Also poll when tab becomes visible again (user returns to extension)
+  document.addEventListener('visibilitychange', _onVisibilityChange);
+}
+
+function stopPolling() {
+  if (_pollInterval) {
+    clearInterval(_pollInterval);
+    _pollInterval = null;
+  }
+  document.removeEventListener('visibilitychange', _onVisibilityChange);
+}
+
+function _onVisibilityChange() {
+  if (!document.hidden && _cloudSynced) {
+    // Tab became visible — poll immediately for any changes missed while hidden
+    pollForChanges();
+  }
+}
+
 // Pull all vault data from server — called once on init
 async function syncFromServer() {
   if (_cloudSynced) return;
@@ -176,6 +287,20 @@ async function syncFromServer() {
     }
 
     _cloudSynced = true;
+
+    // Capture version timestamps for polling change detection
+    // Fetch version info to seed the polling baseline
+    try {
+      const versionData = await apiRequest('/storage/vault/version');
+      if (versionData.success) {
+        _lastKnownVersions = {
+          pool: versionData.poolUpdatedAt || 0,
+          vaults: versionData.vaultsUpdatedAt || 0,
+          sent: versionData.sentUpdatedAt || 0
+        };
+      }
+    } catch (_) {} // Non-critical
+
     console.log(`[ImagePool] ☁️ Cloud sync complete: ${imagePool.length} items, ${vaults.length} vaults, ${Object.keys(sentImagesMap).length} subscriber tracks`);
 
     // Refresh download URLs — signed URLs expire after 4h,
@@ -183,6 +308,9 @@ async function syncFromServer() {
     if (imagePool.length > 0) {
       await refreshDownloadURLs();
     }
+
+    // Start live polling for cross-device changes
+    startPolling();
   } catch (err) {
     console.warn('[ImagePool] ⚠️ Cloud sync failed (using local cache):', err.message);
   }
