@@ -37,16 +37,30 @@ let _lastKnownVersions = { pool: 0, vaults: 0, sent: 0 };
 let _isSyncing = false; // Prevent overlapping syncs
 
 function schedulePoolSync() {
+  // SAFETY: Never push to server before initial sync completes.
+  // A device with incomplete local data could overwrite existing server data.
+  if (!_cloudSynced) {
+    console.log('[ImagePool] ⏳ Pool write deferred — waiting for initial cloud sync');
+    return;
+  }
   clearTimeout(_poolSyncTimer);
   _poolSyncTimer = setTimeout(() => pushPoolToServer(), SYNC_DEBOUNCE_MS);
 }
 
 function scheduleVaultsSync() {
+  if (!_cloudSynced) {
+    console.log('[ImagePool] ⏳ Vaults write deferred — waiting for initial cloud sync');
+    return;
+  }
   clearTimeout(_vaultsSyncTimer);
   _vaultsSyncTimer = setTimeout(() => pushVaultsToServer(), SYNC_DEBOUNCE_MS);
 }
 
 function scheduleSentSync() {
+  if (!_cloudSynced) {
+    console.log('[ImagePool] ⏳ Sent write deferred — waiting for initial cloud sync');
+    return;
+  }
   clearTimeout(_sentSyncTimer);
   _sentSyncTimer = setTimeout(() => pushSentToServer(), SYNC_DEBOUNCE_MS);
 }
