@@ -22,23 +22,13 @@ const CREDIT_COSTS = ESTIMATED_CREDIT_COSTS;
 let usingOwnApiKey = false;
 
 // Check if user has their own API key
+// NOTE: /api/settings endpoint not yet implemented — skip network call,
+// always show credits display. When settings endpoint is added, restore the fetch.
 export const checkOwnApiKey = async () => {
-  try {
-    const response = await apiRequest('/settings', { method: 'GET' });
-    if (response?.success && response.settings?.hasOwnApiKey) {
-      usingOwnApiKey = true;
-      Store.set('usingOwnApiKey', true);
-      hideCreditsDisplay();
-      return true;
-    }
-    usingOwnApiKey = false;
-    Store.set('usingOwnApiKey', false);
-    showCreditsDisplay();
-    return false;
-  } catch (e) {
-    console.error('[Credits] Error checking API key status:', e);
-    return false;
-  }
+  usingOwnApiKey = false;
+  Store.set('usingOwnApiKey', false);
+  showCreditsDisplay();
+  return false;
 };
 
 // Hide the credits display (when using own API key)
