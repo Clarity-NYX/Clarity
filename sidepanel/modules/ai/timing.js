@@ -1,7 +1,7 @@
 // AI Timing - Script completion checks, timing rules, delay calculations
 import Store from '../../state/store.js';
-import { $ } from '../../utils/dom.js';
 import { showNotification } from '../../utils/notify.js';
+
 import { getSubscriberScriptStats } from '../scripts/index.js';
 import { getProfileNow } from '../scripts/timing.js';
 
@@ -103,7 +103,7 @@ export const formatTimeRemaining = (ms) => {
   }
 };
 
-// Show script complete / timeout message - timer in button
+// Show script complete / timeout message - notifies when ready
 export const showTimeoutMessage = (remainingMs) => {
   // Clear existing countdown if any
   if (countdownInterval) {
@@ -113,56 +113,26 @@ export const showTimeoutMessage = (remainingMs) => {
 
   if (remainingMs <= 0) return; // No timeout needed
 
-  const generateBtn = $('generateBtn');
-  if (!generateBtn) return;
+  showNotification(`✅ Script complete! Ready in ${formatTimeRemaining(remainingMs)}`);
 
-  // Store original button content
-  const originalHTML = generateBtn.innerHTML;
-
-  // Disable and gray out button, show timer inside
-  generateBtn.disabled = true;
-  generateBtn.classList.add('btn-timeout');
-  generateBtn.innerHTML = `
-    <span class="btn-icon">⏰</span>
-    <span class="btn-text">✅ Script Complete! <span id="timeoutCounter">${formatTimeRemaining(remainingMs)}</span></span>
-  `;
-
-  // Start countdown
+  // Start countdown to notify when ready
   let remaining = remainingMs;
   countdownInterval = setInterval(() => {
     remaining -= 1000;
-    const counter = document.getElementById('timeoutCounter');
 
     if (remaining <= 0) {
       clearInterval(countdownInterval);
       countdownInterval = null;
-
-      // Restore button
-      generateBtn.disabled = false;
-      generateBtn.classList.remove('btn-timeout');
-      generateBtn.innerHTML = originalHTML;
-
       showNotification('Ready to respond!');
-    } else if (counter) {
-      counter.textContent = formatTimeRemaining(remaining);
     }
   }, 1000);
 };
 
-// Clear timeout message and restore button
+// Clear any active timeout countdown
 export const clearTimeoutMessage = () => {
   if (countdownInterval) {
     clearInterval(countdownInterval);
     countdownInterval = null;
   }
-
-  const generateBtn = $('generateBtn');
-  if (generateBtn && generateBtn.classList.contains('btn-timeout')) {
-    generateBtn.disabled = false;
-    generateBtn.classList.remove('btn-timeout');
-    generateBtn.innerHTML = `
-      <span class="btn-icon">🤖</span>
-      <span class="btn-text">Generate Response</span>
-    `;
-  }
 };
+

@@ -754,15 +754,10 @@ export const generateResponse = async () => {
 
 // Send media only (no text) - for Telegram image actions
 const sendMediaOnly = async (currentAction) => {
-  const generateBtn = $('generateBtn');
-  if (!generateBtn) return;
-  
-  // Update button to show sending state
-  const originalHTML = generateBtn.innerHTML;
-  generateBtn.disabled = true;
-  generateBtn.innerHTML = '⏳ Sending Image...';
-  
+  showNotification('⏳ Sending image...');
+
   try {
+
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
     if (!tab?.id) {
@@ -827,7 +822,6 @@ const sendMediaOnly = async (currentAction) => {
     
     console.log('[AI] Image sent successfully');
     
-    generateBtn.innerHTML = '✅ Sent!';
     showNotification('📸 Image sent!');
     
     if (currentAction) {
@@ -838,22 +832,15 @@ const sendMediaOnly = async (currentAction) => {
     }
     
     setTimeout(() => {
-      generateBtn.disabled = false;
-      generateBtn.innerHTML = originalHTML;
       hide('generatedResponse');
     }, 1000);
     
   } catch (error) {
     console.error('[AI] Media send failed:', error);
-    generateBtn.innerHTML = '❌ Failed';
     showError(error.message || 'Failed to send image');
-    
-    setTimeout(() => {
-      generateBtn.disabled = false;
-      generateBtn.innerHTML = originalHTML;
-    }, 2000);
   }
 };
+
 
 // Update media preview in the response area
 const updateMediaPreview = (currentAction) => {
@@ -1402,8 +1389,8 @@ const sendTranslation = async () => {
 };
 
 export const setupAIListeners = () => {
-  $('generateBtn')?.addEventListener('click', generateResponse);
   $('regenerateBtn')?.addEventListener('click', generateResponse);
+
   $('copyBtn')?.addEventListener('click', copyResponse);
   $('sendBtn')?.addEventListener('click', sendToChat);
   $('testMediaBtn')?.addEventListener('click', testSendMedia);
