@@ -9,7 +9,6 @@ import { $ } from '../../utils/dom.js';
 import { showNotification } from '../../utils/notify.js';
 import {
   getImages,
-  addImage,
   addFile,
   deleteImage,
   markImageUsed,
@@ -29,29 +28,24 @@ let currentVaultId = 'all';  // 'all' | vault id
 let selectMode = false;      // multi-select mode
 let selectedIds = new Set();  // selected media IDs
 
-// Helper: check if vault modal is currently visible
+// Helper: check if the vault tab is currently active/visible
 const isVaultOpen = () => {
-  const modal = $('vaultModal');
-  return modal && modal.classList.contains('active');
+  const tab = $('vaultTab');
+  return tab && tab.classList.contains('active');
 };
 
 // ============================================================
-// OPEN / CLOSE
+// OPEN — called when the Vault tab is activated
 // ============================================================
 
 export const openVault = () => {
-  const modal = $('vaultModal');
-  if (!modal) return;
+  const tab = $('vaultTab');
+  if (!tab) return;
   currentTab = 'images';
   currentVaultId = 'all';
-  modal.classList.add('active');
   renderVault();
 };
 
-export const closeVault = () => {
-  const modal = $('vaultModal');
-  if (modal) modal.classList.remove('active');
-};
 
 // ============================================================
 // TAB SWITCHING
@@ -778,29 +772,6 @@ const isAcceptedFile = (file) => {
   return file.type.startsWith('image/') || file.type.startsWith('video/') || isHeic(file);
 };
 
-/** Convert a HEIC/HEIF File to JPEG dataURL via heic2any library */
-const heicToJpeg = async (file) => {
-  if (!window.heic2any) throw new Error('HEIC converter not loaded');
-  const jpegBlob = await window.heic2any({ blob: file, toType: 'image/jpeg', quality: 0.92 });
-  const blob = Array.isArray(jpegBlob) ? jpegBlob[0] : jpegBlob;
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => resolve(e.target.result);
-    reader.onerror = () => reject(new Error('Failed to read converted image'));
-    reader.readAsDataURL(blob);
-  });
-};
-
-/** Read a file as base64 dataURL */
-const readFileAsDataURL = (file) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (ev) => resolve(ev.target.result);
-    reader.onerror = () => reject(new Error('Failed to read file'));
-    reader.readAsDataURL(file);
-  });
-};
-
 // ---- Upload Progress UI ----
 
 const showUploadProgress = (current, total) => {
@@ -865,6 +836,7 @@ const processFiles = async (fileList) => {
   isUploading = true;
   let successCount = 0;
   let failCount = 0;
+  let skippedHeicCount = 0;
 
   try {
     for (let i = 0; i < files.length; i++) {
@@ -876,16 +848,16 @@ const processFiles = async (fileList) => {
         const name = file.name.replace(/\.[^.]+$/, '');
 
         if (isHeic(file)) {
-          // HEIC needs conversion to JPEG first (still uses base64 path)
-          const mediaData = await heicToJpeg(file);
-          await addImage(mediaData, 'image', name, targetVault);
-        } else {
-          // Direct File upload — no base64 conversion, supports 2GB+
-          await addFile(file, isVideo ? 'video' : 'image', name, targetVault);
+          // HEIC/HEIF is unsupported in-app (browser CSP blocks the converter).
+          // Skip and let the user convert to JPEG externally.
+          skippedHeicCount++;
+          continue;
         }
+
+        // Direct File upload — no base64 conversion, supports 2GB+
+        await addFile(file, isVideo ? 'video' : 'image', name, targetVault);
         successCount++;
       } catch (err) {
-        console.error(`[Vault] Failed to upload "${file.name}":`, err);
         failCount++;
       }
     }
@@ -897,11 +869,14 @@ const processFiles = async (fileList) => {
   // Summary notification
   const vaults = getVaults();
   const vaultName = vaults.find(v => v.id === targetVault)?.name || 'General';
-  if (failCount === 0) {
-    showNotification(`${successCount} file${successCount > 1 ? 's' : ''} added to ${vaultName} ☁️`);
-  } else {
-    showNotification(`${successCount} added, ${failCount} failed — ${vaultName}`);
+  const parts = [`${successCount} file${successCount === 1 ? '' : 's'} added to ${vaultName} ☁️`];
+  if (skippedHeicCount > 0) {
+    parts.push(`${skippedHeicCount} HEIC skipped (convert to JPEG first)`);
   }
+  if (failCount > 0) {
+    parts.push(`${failCount} failed`);
+  }
+  showNotification(parts.join(' — '));
   renderVaultGrid();
 };
 
@@ -989,19 +964,11 @@ const setupDragAndDrop = () => {
 // ============================================================
 
 export const setupVault = () => {
-  // Vault button
-  $('vaultBtn')?.addEventListener('click', openVault);
-
-  // Close button
-  $('vaultCloseBtn')?.addEventListener('click', closeVault);
-
   // Select mode toggle
   $('vaultSelectBtn')?.addEventListener('click', toggleSelectMode);
 
-  // Backdrop click
-  $('vaultModal')?.querySelector('.vault-backdrop')?.addEventListener('click', closeVault);
+  // Tab buttons (Images / Videos / Sent)
 
-  // Tab buttons
   document.querySelectorAll('.vault-tab-btn').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.dataset.tab));
   });

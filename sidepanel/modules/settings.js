@@ -369,7 +369,7 @@ export const saveSettings = () => {
 };
 
 // Render situational reactions UI
-const renderSituationalPresets = () => {
+export const renderSituationalPresets = () => {
   const container = $('situationalList');
   if (!container) return;
   

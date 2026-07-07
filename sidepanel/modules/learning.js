@@ -483,30 +483,6 @@ function copyEnhancement() {
 }
 
 // ============================================================
-// MODE TOGGLE
-// ============================================================
-
-function setupModeToggle() {
-  $('modeStandardBtn')?.addEventListener('click', () => {
-    $('modeStandardBtn').classList.add('active');
-    $('modeLearnedBtn').classList.remove('active');
-    chrome.storage.local.set({ aiMode: 'standard' });
-  });
-  $('modeLearnedBtn')?.addEventListener('click', () => {
-    $('modeLearnedBtn').classList.add('active');
-    $('modeStandardBtn').classList.remove('active');
-    chrome.storage.local.set({ aiMode: 'learned' });
-  });
-  // Restore saved mode
-  chrome.storage.local.get('aiMode', (data) => {
-    if (data.aiMode === 'learned') {
-      $('modeLearnedBtn')?.classList.add('active');
-      $('modeStandardBtn')?.classList.remove('active');
-    }
-  });
-}
-
-// ============================================================
 // INIT & SETUP
 // ============================================================
 
@@ -517,18 +493,17 @@ export async function initLearning() {
   try {
     const data = await apiRequest('/auth/role');
     if (data.success && data.role === 'admin') {
-      console.log('[Learning] 🔑 Admin role detected — showing AI tab & save button & mode toggle');
+      console.log('[Learning] 🔑 Admin role detected — showing AI tab & save button');
       const tabBtn = document.getElementById('learningTabBtn');
       if (tabBtn) tabBtn.style.display = '';
       showSaveForTrainingBtn();
-      showAiModeToggle();
-      setupModeToggle();
     } else {
       console.log('[Learning] 👤 Non-admin user — AI tab hidden');
     }
   } catch (e) {
     console.log('[Learning] Role check failed — AI tab hidden:', e.message);
   }
+
 }
 
 export function setupLearningListeners() {
@@ -554,12 +529,8 @@ export function showSaveForTrainingBtn() {
   if (btn) btn.style.display = '';
 }
 
-export function showAiModeToggle() {
-  const toggle = document.getElementById('aiModeToggle');
-  if (toggle) toggle.classList.remove('hidden');
-}
-
 export function onLearningTabActive() {
+
   pollStatus();
   loadConversations();
   loadInsights();

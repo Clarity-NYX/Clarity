@@ -1,6 +1,7 @@
 const path = require('path');
 
 module.exports = {
+  devtool: false,
   entry: {
     content: './content/index.js'
   },

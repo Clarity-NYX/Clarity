@@ -8,7 +8,7 @@ import { renderTaskDays } from './taskDays.js';
 
 // Generate unique key for message deduplication
 // Only dedupe if we have a REAL ID - don't dedupe based on content
-const getMessageKey = (msg, index) => {
+export const getMessageKey = (msg, index) => {
   // If message has a real ID from OnlyFans, use it
   if (msg.id && !msg.id.startsWith('temp-')) return `id:${msg.id}`;
   // If it has a datetime, use datetime + sender + first 20 chars of text
@@ -121,6 +121,9 @@ export const startDisplayCrossCheck = () => {
   if (crossCheckInterval) return; // Already running
   
   crossCheckInterval = setInterval(() => {
+    // Skip cross-check if a delete operation is in progress
+    if (Store.get('_deleteInProgress')) return;
+    
     // Skip cross-check if a preview or loading message is showing
     // — user is actively reviewing AI output, don't disrupt
     const hasPreview = document.getElementById('previewMessage');
@@ -169,8 +172,10 @@ export const renderChatMessages = () => {
   // and must survive re-renders. Detach them, re-render messages, then re-attach.
   const previewMessage = document.getElementById('previewMessage');
   const loadingMessage = document.getElementById('loadingMessage');
+  const draftBar = document.getElementById('draftBar');
   const savedPreview = previewMessage ? previewMessage.parentNode.removeChild(previewMessage) : null;
   const savedLoading = loadingMessage ? loadingMessage.parentNode.removeChild(loadingMessage) : null;
+  const savedDraft = draftBar ? draftBar.parentNode.removeChild(draftBar) : null;
   
   if (!messages.length) {
     chatMessages.innerHTML = `
@@ -179,13 +184,19 @@ export const renderChatMessages = () => {
         <p>No conversation loaded</p>
         <small>Open a chat on OnlyFans or Telegram</small>
       </div>`;
-    // Re-attach preview/loading even on empty state
+    // Re-attach draft/preview/loading even on empty state
+    if (savedDraft) chatMessages.appendChild(savedDraft);
     if (savedLoading) chatMessages.appendChild(savedLoading);
     if (savedPreview) chatMessages.appendChild(savedPreview);
     return;
   }
   
-  chatMessages.innerHTML = messages.map(msg => {
+  // Displayed-chat translation: if a display language is active, substitute
+  // each message's text with its native-sounding translation (keyed by msg key)
+  const displayLang = Store.get('chatDisplayLang');
+  const translations = Store.get('chatTranslations');
+
+  chatMessages.innerHTML = messages.map((msg, idx) => {
     // Build media preview HTML
     let mediaHtml = '';
     if (msg.mediaThumbnail || msg.mediaUrl) {
@@ -212,14 +223,37 @@ export const renderChatMessages = () => {
       paymentHtml = `<div class="message-payment ${badgeClass}">${badgeText}</div>`;
     }
     
+    // Build reply quote HTML (for messages that are replies to another message)
+    let replyHtml = '';
+    if (msg.replyTo && (msg.replyTo.text || msg.replyTo.author)) {
+      const replyAuthor = msg.replyTo.author ? `<span class="reply-author">${escapeHtml(msg.replyTo.author)}</span>` : '';
+      const replyText = msg.replyTo.text ? `<span class="reply-text">${escapeHtml(msg.replyTo.text)}</span>` : '';
+      replyHtml = `<div class="message-reply-quote">${replyAuthor}${replyText}</div>`;
+    }
+    
     // Only show text if it's not just a media placeholder
     const isMediaOnly = msg.mediaType && /^\[.+\]$/.test(msg.text);
-    const textHtml = (!isMediaOnly && msg.text) 
-      ? `<div class="message-text">${escapeHtml(msg.text)}</div>` 
+    // Deduplicate: if msg.text is identical to msg.replyTo.text, don't show it twice
+    let displayText = msg.text;
+    // If a display language is active, substitute the translated text (keyed by
+    // message key so translations stay attached to the right bubble on re-render)
+    if (displayLang && translations) {
+      const translated = translations[getMessageKey(msg, idx)];
+      if (translated) displayText = translated;
+    }
+    if (msg.replyTo?.text && displayText) {
+      const clean = (s) => s.replace(/^[""\u201C\u201D]\s*/, '').replace(/\s*[""\u201C\u201D]$/, '').trim();
+      if (clean(displayText) === clean(msg.replyTo.text)) {
+        displayText = '';
+      }
+    }
+    const textHtml = (!isMediaOnly && displayText) 
+      ? `<div class="message-text">${escapeHtml(displayText)}</div>` 
       : '';
     
     return `
-      <div class="message ${msg.isFromMe ? 'from-me' : 'from-them'}${msg.paymentStatus ? ' has-payment' : ''}${msg.mediaType ? ' has-media' : ''}" ${msg.id ? `data-msg-id="${msg.id}"` : ''}>
+      <div class="message ${msg.isFromMe ? 'from-me' : 'from-them'}${msg.paymentStatus ? ' has-payment' : ''}${msg.mediaType ? ' has-media' : ''}${msg.replyTo ? ' has-reply' : ''}" ${msg.id ? `data-msg-id="${msg.id}"` : ''}>
+        ${replyHtml}
         ${mediaHtml}
         ${textHtml}
         ${paymentHtml}
@@ -227,7 +261,8 @@ export const renderChatMessages = () => {
       </div>`;
   }).join('');
   
-  // Re-attach preview/loading elements after rendering messages
+  // Re-attach draft/preview/loading elements after rendering messages
+  if (savedDraft) chatMessages.appendChild(savedDraft);
   if (savedLoading) chatMessages.appendChild(savedLoading);
   if (savedPreview) chatMessages.appendChild(savedPreview);
   
@@ -312,6 +347,217 @@ const formatSubscriptionDuration = (subscribedSince) => {
   
   // Fallback for edge case (less than a month but >= 28 days)
   return `${diffDays} days`;
+};
+
+// ============================================================
+// LIVE DRAFT PREVIEW — Real-time green preview bubble for OF compose box
+// Uses the SAME green .message-preview styling as AI-generated responses
+// Updates text IN-PLACE (no DOM recreation) for smooth real-time typing
+// ============================================================
+
+// Helper: Delete a specific media attachment from the OF compose area
+// Sends a message to the content script to click the Nth delete button
+const deleteDraftMedia = async (index) => {
+  console.log(`[Draft] 🗑️ Deleting media at index ${index}`);
+  try {
+    // EXACT same tab lookup as AI module — NO url filter (fails from sidepanel context)
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) {
+      console.warn('[Draft] No active tab found — cannot delete media');
+      return;
+    }
+    const response = await chrome.tabs.sendMessage(tab.id, { type: 'DELETE_DRAFT_MEDIA', index });
+    console.log(`[Draft] 🗑️ Delete response:`, response);
+  } catch (err) {
+    console.error(`[Draft] 🗑️ Failed to delete media at index ${index}:`, err);
+  }
+};
+
+export const renderDraftBar = (draft) => {
+  console.log(`[🔍 DRAFT-DEBUG RENDER] renderDraftBar called:`, draft ? `text="${(draft.text || '').substring(0, 30)}", media=${(draft.media || []).length}` : 'null/empty');
+  
+  const chatMessages = $('chatMessages');
+  if (!chatMessages) {
+    console.log(`[🔍 DRAFT-DEBUG RENDER] chatMessages element NOT FOUND — cannot render`);
+    return;
+  }
+
+  const existing = document.getElementById('draftBar');
+
+  // If no draft data, remove the bubble and we're done
+  if (!draft || (!draft.text && (!draft.media || draft.media.length === 0))) {
+    if (existing) existing.remove();
+    console.log(`[🔍 DRAFT-DEBUG RENDER] No draft data — removed bubble`);
+    return;
+  }
+  
+  console.log(`[🔍 DRAFT-DEBUG RENDER] Will ${existing ? 'UPDATE' : 'CREATE'} draft bubble`);
+
+  // ── UPDATE IN-PLACE if bubble already exists (avoids flashing on every keystroke) ──
+  if (existing) {
+    // Update text content in-place
+    const textEl = existing.querySelector('.message-text');
+    const newText = draft.text || '';
+    if (textEl) {
+      if (textEl.textContent !== newText) textEl.textContent = newText;
+      textEl.style.display = newText ? '' : 'none';
+    } else if (newText) {
+      // Text appeared — insert before actions
+      const actionsEl = existing.querySelector('.preview-actions');
+      const newTextEl = document.createElement('div');
+      newTextEl.className = 'message-text';
+      newTextEl.textContent = newText;
+      existing.insertBefore(newTextEl, actionsEl);
+    }
+
+    // Update media thumbnails
+    const mediaEl = existing.querySelector('.preview-media');
+    const hasMedia = draft.media && draft.media.length > 0;
+    if (hasMedia) {
+      const mediaHtml = draft.media.map((item, idx) =>
+        `<div class="preview-media-item" data-media-index="${idx}">` +
+        `<img src="${escapeHtml(item.src)}" alt="${escapeHtml(item.alt || 'Media')}" class="preview-media-thumb">` +
+        `<button class="preview-media-delete" data-media-index="${idx}" title="Remove media">✕</button>` +
+        `</div>`
+      ).join('');
+      if (mediaEl) {
+        mediaEl.innerHTML = mediaHtml;
+      } else {
+        const newMediaEl = document.createElement('div');
+        newMediaEl.className = 'preview-media';
+        newMediaEl.innerHTML = mediaHtml;
+        existing.insertBefore(newMediaEl, existing.firstChild);
+      }
+      // Wire up delete buttons
+      existing.querySelectorAll('.preview-media-delete').forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          deleteDraftMedia(parseInt(btn.dataset.mediaIndex, 10));
+        };
+      });
+    } else if (mediaEl) {
+      mediaEl.remove();
+    }
+
+    // Show/hide copy button based on whether there's text
+    const copyBtn = existing.querySelector('.btn-copy');
+    if (copyBtn) copyBtn.style.display = newText ? '' : 'none';
+
+    // Scroll to keep it in view
+    existing.scrollIntoView({ behavior: 'instant', block: 'end' });
+    return;
+  }
+
+  // ── FIRST TIME: Create the green preview bubble from scratch ──
+  const draftEl = document.createElement('div');
+  draftEl.id = 'draftBar';
+  // Uses exact same classes as AI preview — gets all green styling for free
+  draftEl.className = 'message message-preview draft-live from-me';
+
+  let html = '';
+
+  // Media thumbnails with delete buttons (same structure as update-in-place path)
+  if (draft.media && draft.media.length > 0) {
+    html += '<div class="preview-media">';
+    draft.media.forEach((item, idx) => {
+      html += `<div class="preview-media-item" data-media-index="${idx}">` +
+        `<img src="${escapeHtml(item.src)}" alt="${escapeHtml(item.alt || 'Media')}" class="preview-media-thumb">` +
+        `<button class="preview-media-delete" data-media-index="${idx}" title="Remove media">✕</button>` +
+        `</div>`;
+    });
+    html += '</div>';
+  }
+
+  // Draft text
+  if (draft.text) {
+    html += `<div class="message-text">${escapeHtml(draft.text)}</div>`;
+  }
+
+  // Action buttons — same pattern as AI preview
+  html += '<div class="preview-actions">';
+  if (draft.text) {
+    html += '<button class="btn-preview-action btn-copy" title="Copy text">📋 Copy</button>';
+  }
+  html += '<button class="btn-preview-action btn-send" title="Send this message">✅ Send</button>';
+  html += '</div>';
+
+  draftEl.innerHTML = html;
+
+  // Wire up media delete buttons
+  draftEl.querySelectorAll('.preview-media-delete').forEach(btn => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      deleteDraftMedia(parseInt(btn.dataset.mediaIndex, 10));
+    };
+  });
+
+  // Wire up action buttons
+  const copyBtn = draftEl.querySelector('.btn-copy');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const currentText = draftEl.querySelector('.message-text')?.textContent || '';
+      navigator.clipboard.writeText(currentText).then(() => {
+        copyBtn.textContent = '✅ Copied';
+        setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 1500);
+      }).catch(() => {});
+    });
+  }
+
+  const sendBtn = draftEl.querySelector('.btn-send');
+  if (sendBtn) {
+    sendBtn.addEventListener('click', async () => {
+      const draftText = draftEl.querySelector('.message-text')?.textContent || '';
+      if (!draftText.trim()) {
+        sendBtn.textContent = '❌ Empty';
+        setTimeout(() => { sendBtn.textContent = '✅ Send'; }, 2000);
+        return;
+      }
+      sendBtn.textContent = '⏳ Sending…';
+      sendBtn.disabled = true;
+      try {
+        // EXACT same path as AI module's sendPreviewMessage — proven to work.
+        // Uses SEND_MESSAGE which calls sendMessageToChat() in content script
+        // (types the text + clicks send in one proven operation).
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) {
+          sendBtn.textContent = '❌ No tab';
+        } else {
+          const response = await chrome.tabs.sendMessage(tab.id, {
+            type: 'SEND_MESSAGE',
+            text: draftText,
+          });
+          if (response?.success) {
+            sendBtn.textContent = '✅ Sent!';
+            console.log('[Draft] ✅ SEND_MESSAGE succeeded (same path as AI module)');
+          } else {
+            console.warn('[Draft] SEND_MESSAGE failed:', response?.error);
+            sendBtn.textContent = '❌ Failed';
+          }
+        }
+      } catch (err) {
+        console.error('[Draft] Send failed:', err);
+        sendBtn.textContent = '❌ Failed';
+      }
+      setTimeout(() => {
+        sendBtn.textContent = '✅ Send';
+        sendBtn.disabled = false;
+      }, 3000);
+    });
+  }
+
+  // Insert before AI preview/loading messages (those are appended at the very end)
+  const previewMessage = document.getElementById('previewMessage');
+  const loadingMessage = document.getElementById('loadingMessage');
+  const insertBefore = loadingMessage || previewMessage || null;
+
+  if (insertBefore) {
+    chatMessages.insertBefore(draftEl, insertBefore);
+  } else {
+    chatMessages.appendChild(draftEl);
+  }
+
+  // Scroll to show the new bubble
+  draftEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
 };
 
 // Display subscriber stats

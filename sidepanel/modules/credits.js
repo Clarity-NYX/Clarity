@@ -5,7 +5,10 @@
 import Store from '../state/store.js';
 import { $ } from '../utils/dom.js';
 import { showNotification } from '../utils/notify.js';
-import API, { apiRequest } from '../utils/api.js';
+import API from '../utils/api.js';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('Credits');
 
 // Credit costs are now dynamic (actual usage * 4)
 // These are just fallback estimates for UI display before API response
@@ -37,7 +40,7 @@ export const hideCreditsDisplay = () => {
   if (creditsBtn) {
     creditsBtn.style.display = 'none';
   }
-  console.log('[Credits] Hidden - using own API key');
+  logger.debug('Hidden - using own API key');
 };
 
 // Show the credits display (when using credits)
@@ -68,13 +71,13 @@ export const loadCredits = async () => {
       // One-time reset: Check if we need to reset old usage data (wrong pricing)
       const resetDone = await chrome.storage.local.get(['usageResetV2']);
       if (!resetDone.usageResetV2) {
-        console.log('📊 Resetting usage data (one-time fix for pricing)...');
+        logger.info('Resetting usage data (one-time fix for pricing)...');
         try {
           await API.resetUsage();
           await chrome.storage.local.set({ usageResetV2: true });
-          console.log('✅ Usage data reset successfully');
+          logger.info('Usage data reset successfully');
         } catch (e) {
-          console.error('Failed to reset usage:', e);
+          logger.error('Failed to reset usage:', e);
         }
       }
       
@@ -84,7 +87,7 @@ export const loadCredits = async () => {
       return response.credits;
     }
   } catch (error) {
-    console.error('Failed to load credits:', error);
+    logger.error('Failed to load credits:', error);
   }
   return 0;
 };
@@ -100,7 +103,7 @@ export const loadTotalUsage = async () => {
       updateUsageDisplay(estimatedCost);
     }
   } catch (error) {
-    console.error('Failed to load usage:', error);
+    logger.error('Failed to load usage:', error);
   }
 };
 
@@ -125,7 +128,7 @@ export const updateCreditsDisplay = () => {
   const creditsDisplay = $('creditsDisplay') || document.getElementById('creditsDisplay');
   const modalCreditsBalance = $('modalCreditsBalance') || document.getElementById('modalCreditsBalance');
   
-  console.log('[Credits] 💰 Updating display:', formatted, 'Element found:', !!creditsDisplay);
+  logger.debug('Updating display:', formatted, 'Element found:', !!creditsDisplay);
   
   if (creditsDisplay) {
     creditsDisplay.textContent = formatted;
@@ -212,7 +215,7 @@ export const purchasePackage = async (packageId) => {
       showNotification(response.error || 'Purchase failed');
     }
   } catch (error) {
-    console.error('Purchase error:', error);
+    logger.error('Purchase error:', error);
     showNotification('Purchase failed. Please try again.');
   }
 };
@@ -220,30 +223,26 @@ export const purchasePackage = async (packageId) => {
 // Update credits from API response (called after any API call that deducts credits)
 // Set showToast=true to display a notification with usage info
 export const updateCreditsFromResponse = (response, showToast = false) => {
-  console.log('[Credits] updateCreditsFromResponse called:', { response, showToast });
-  
   if (!response) {
-    console.log('[Credits] No response object - skipping');
+    logger.debug('No response object - skipping');
     return;
   }
   
-  // Debug: log what's in the response
-  console.log('[Credits] Response keys:', Object.keys(response));
-  console.log('[Credits] creditsUsed:', response.creditsUsed, 'creditsRemaining:', response.creditsRemaining);
+  logger.debug('Response creditsUsed:', response.creditsUsed, 'creditsRemaining:', response.creditsRemaining);
   
   // Update credits if provided in response
   if (typeof response.creditsRemaining === 'number' && response.creditsRemaining >= 0) {
     Store.set('credits', response.creditsRemaining);
     updateCreditsDisplay();
-    console.log(`💳 Credits updated: ${response.creditsRemaining} remaining`);
+    logger.debug(`Credits updated: ${response.creditsRemaining} remaining`);
   } else if (response.creditsRemaining === -1) {
     // Unlimited credits
-    console.log(`💳 Unlimited credits detected`);
+    logger.debug('Unlimited credits detected');
   }
   
   // Log and optionally toast credits used
   if (response.creditsUsed !== undefined && response.creditsUsed !== null) {
-    console.log(`💳 Action cost: ${response.creditsUsed} credits`);
+    logger.debug(`Action cost: ${response.creditsUsed} credits`);
     
     // Show toast notification with usage
     if (showToast) {
@@ -251,14 +250,12 @@ export const updateCreditsFromResponse = (response, showToast = false) => {
       const remainingText = response.creditsRemaining === -1 ? 'unlimited' : remaining.toLocaleString();
       showNotification(`💳 Used ${response.creditsUsed} credits (${remainingText} left)`);
     }
-  } else {
-    console.log('[Credits] No creditsUsed in response');
   }
   
   // Check if credits are low (below 100) - show warning
   const credits = Store.get('credits') || 0;
   if (credits > 0 && credits < 100) {
-    console.warn('⚠️ Credits running low:', credits);
+    logger.warn('Credits running low:', credits);
     showNotification('⚠️ Low credits! Open Billing to buy more.');
   } else if (credits === 0) {
     showNotification('❌ Out of credits! Open Billing to continue.');

@@ -109,6 +109,31 @@
   background: rgba(244, 67, 54, 0.2);
 }
 
+/* Cleanup Button */
+.btn-cleanup {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(168, 85, 247, 0.15));
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  color: #c084fc;
+  font-size: 14px;
+  transition: all var(--transition-base);
+}
+
+.btn-cleanup:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.4), rgba(168, 85, 247, 0.3));
+  border-color: rgba(139, 92, 246, 0.6);
+  transform: scale(1.05);
+}
+
+.btn-cleanup[data-running="true"] {
+  animation: cleanupPulse 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes cleanupPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 /* Icon Button */
 .icon-btn {
   background: var(--border);

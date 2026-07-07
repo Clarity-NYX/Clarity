@@ -29,9 +29,14 @@ import {
   // Main setup
   setupChat,
   
+  // Display translation
+  handleDisplayLangChange,
+  
   // Vault
-  setupVault
+  setupVault,
+  openVault
 } from './chat/index.js';
+
 
 // Make toggleAlarmMute available globally for the notification module
 if (typeof window !== 'undefined') {
@@ -66,5 +71,8 @@ export {
   setupChatListListeners,
   toggleAlarmMute,
   setupChat,
-  setupVault
+  handleDisplayLangChange,
+  setupVault,
+  openVault
 };
+

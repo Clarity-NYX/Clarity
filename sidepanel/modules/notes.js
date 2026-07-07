@@ -76,7 +76,7 @@ const getCurrentProfileId = () => {
 };
 
 // Display notes in UI
-const displayNotes = (notes) => {
+export const displayNotes = (notes) => {
   if (!notes) return;
   
   el.noteName && (el.noteName.value = notes.name || '');
@@ -237,6 +237,18 @@ export const saveNotesToDB = async (notes = null) => {
       Store.set('currentNotes', notesToSave);
       // Update cache so next load returns fresh data
       notesCache.set(subscriberId, notesToSave);
+      
+      // Sync stats to CRM bridge for real-time display
+      try {
+        const metadata = {};
+        if (notesToSave.subscribedDays != null) metadata.subscribedDays = notesToSave.subscribedDays;
+        if (notesToSave.totalSpent != null) metadata.totalSpent = notesToSave.totalSpent;
+        if (notesToSave.subscribedSince) metadata.subscribedSince = notesToSave.subscribedSince;
+        if (Object.keys(metadata).length > 0) {
+          chrome.runtime.sendMessage({ type: 'SYNC_FAN_STATS', subscriberId, stats: metadata }).catch(() => {});
+        }
+      } catch { /* non-critical */ }
+      
       if (!notes) showNotification('Notes saved!');
       return true;
     }

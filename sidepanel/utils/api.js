@@ -291,6 +291,8 @@ export const API = {
   checkGoal: (data) => sendMessage('CHECK_GOAL', data),
   validateResponse: (data) => sendMessage('VALIDATE_RESPONSE', data),
   generateImageCaption: (data) => sendMessage('GENERATE_IMAGE_CAPTION', data),
+  translateText: (data) => sendMessage('TRANSLATE_TEXT', data),
+  translateChat: (data) => sendMessage('TRANSLATE_CHAT', data),
   
   // Stats
   fetchSubscriberStats: (subscriberId) => sendMessage('FETCH_SUBSCRIBER_STATS', { subscriberId }),

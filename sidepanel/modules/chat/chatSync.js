@@ -10,6 +10,8 @@ import { autoSelectScript, renderScriptStages, autoSkipSatisfiedGoals, Progress 
 import { saveFullChatReplacement, forceFlushPendingSaves, loadTelegramChatLocal } from './chatStorage.js';
 import { renderChatMessages, populateNotesFromChat } from './chatRenderer.js';
 import { showChatListView, showConversationView } from './chatList.js';
+import { restoreDisplayLang, translateNewMessages } from './displayTranslation.js';
+
 
 // Track message count for auto-scan
 let lastAutoScanMessageCount = 0;
@@ -29,6 +31,13 @@ const DETECT_SYNC_DEBOUNCE_MS = 500;
 // Handle incoming messages
 // Smart handling to prevent data loss
 export const handleIncomingMessages = (scannedMessages) => {
+  // CRITICAL: Skip if a delete-all operation is in progress
+  // The _deleteInProgress flag is set during a CRM-bridge cleanup and released after 5s
+  if (Store.get('_deleteInProgress')) {
+    console.log('[Chat] 🗑️ Delete in progress — skipping incoming messages to prevent re-population');
+    return;
+  }
+  
   const currentProfile = Store.get('currentProfile');
   const currentSubscriberId = Store.get('currentSubscriberId');
   
@@ -78,11 +87,16 @@ export const handleIncomingMessages = (scannedMessages) => {
   if (versionAfter !== versionBefore) {
     renderChatMessages();
     
+    // Auto-translate any newly arrived messages if a display language is active
+    // (no-op when no language selected). Runs async, re-renders when done.
+    translateNewMessages();
+    
     // Save merged result to database if we have a profile
     if (currentProfile && currentSubscriberId && finalMessages.length > 0) {
       saveFullChatReplacement(finalMessages);
     }
   } else {
+
     console.log('[Chat] Messages unchanged — skipping re-render and save');
   }
   
@@ -412,6 +426,12 @@ const correctiveMerge = (liveMessages, dbMessages) => {
 
 // Main verification: fetch fresh live messages, compare, correct if needed
 const verifyAndCorrectChat = async () => {
+  // Skip verification if delete is in progress — nothing to verify
+  if (Store.get('_deleteInProgress')) {
+    console.log('[Verify] 🗑️ Delete in progress — skipping verification');
+    return;
+  }
+  
   const currentSubscriberId = Store.get('currentSubscriberId');
   if (!currentSubscriberId) return;
   
@@ -501,6 +521,12 @@ const verifyAndCorrectChat = async () => {
 
 // Load and sync chat - ALWAYS load from live page first, then merge with DB
 export const loadAndSyncChat = async () => {
+  // Skip full sync if delete is in progress — we just wiped everything
+  if (Store.get('_deleteInProgress')) {
+    console.log('[Chat] 🗑️ Delete in progress — skipping loadAndSyncChat');
+    return;
+  }
+  
   const currentProfile = Store.get('currentProfile');
   if (!currentProfile) return;
   
@@ -606,8 +632,13 @@ export const loadAndSyncChat = async () => {
       saveFullChatReplacement(finalMessages);
     }
     
+    // Restore this subscriber's display-language + translations (auto-translates
+    // any newly loaded history that isn't yet translated, then re-renders)
+    restoreDisplayLang();
+    
     // Fetch stats
     setTimeout(() => fetchSubscriberStats(), 1000);
+
     
     // Trigger notes auto-scan (if enabled)
     setTimeout(() => onChatLoaded(), 1500);
@@ -716,6 +747,8 @@ export const forceRefreshSubscriberStats = async () => {
       // totalSpent CAN be refreshed — it's a cumulative value from the page
       if (response.stats.totalSpent) {
         updatedNotes.totalSpent = response.stats.totalSpent;
+        // Sync spending to NYX CRM
+        chrome.runtime.sendMessage({ type: 'NYX_CRM_SYNC_SPENDING', subscriberId: currentSubscriberId, totalSpent: response.stats.totalSpent }).catch(() => {});
       }
       showNotification('Subscriber info refreshed!');
     } else {
@@ -797,6 +830,8 @@ export const fetchSubscriberStats = async () => {
       }
       if (response.stats.totalSpent) {
         updatedNotes.totalSpent = response.stats.totalSpent;
+        // Sync spending to NYX CRM
+        chrome.runtime.sendMessage({ type: 'NYX_CRM_SYNC_SPENDING', subscriberId: currentSubscriberId, totalSpent: response.stats.totalSpent }).catch(() => {});
       }
       showNotification('Subscriber stats loaded!');
     } else {

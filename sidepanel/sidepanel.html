@@ -358,6 +358,82 @@
         <!-- Populated dynamically -->
       </select>
       
+      <!-- NYX CRM Connection -->
+      <div class="settings-section" id="nyxCrmSection">
+        <h4 class="settings-section-title">🔗 NYX CRM Connection</h4>
+        <small class="settings-section-desc">Connect Clarity to the NYX management dashboard for remote chat</small>
+
+        <!-- Status indicator (always visible) -->
+        <div id="nyxCrmStatus" class="nyx-crm-status">
+          <span id="nyxCrmStatusDot" class="nyx-status-dot offline"></span>
+          <span id="nyxCrmStatusText" class="nyx-status-text">Not connected</span>
+        </div>
+
+        <!-- Login Form (shown when disconnected) -->
+        <div id="nyxCrmLoginForm" class="nyx-crm-form">
+          <div class="form-group">
+            <label>NYX Admin Email:</label>
+            <input type="email" id="nyxCrmEmail" placeholder="your@nyx-ofm.com" autocomplete="email">
+          </div>
+          <div class="form-group">
+            <label>Password:</label>
+            <input type="password" id="nyxCrmPassword" placeholder="••••••••" autocomplete="current-password">
+          </div>
+          <div id="nyxCrmLoginError" class="nyx-crm-error hidden"></div>
+          <button id="nyxCrmConnectBtn" class="btn btn-primary btn-full">🔗 Connect to NYX</button>
+        </div>
+
+        <!-- MFA TOTP Verification (shown when 2FA is required) -->
+        <div id="nyxCrmMfaForm" class="nyx-crm-form hidden">
+          <div class="nyx-mfa-header">
+            <span class="nyx-mfa-icon">🔐</span>
+            <div class="nyx-mfa-info">
+              <span class="nyx-mfa-title">Two-Factor Authentication</span>
+              <span class="nyx-mfa-desc">Enter the 6-digit code from your authenticator app</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>2FA Code:</label>
+            <input type="text" id="nyxCrmTotpCode" placeholder="000000" maxlength="6" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" style="text-align: center; font-size: 1.4em; letter-spacing: 0.3em; font-weight: 600;">
+          </div>
+          <div id="nyxCrmMfaError" class="nyx-crm-error hidden"></div>
+          <button id="nyxCrmVerifyMfaBtn" class="btn btn-primary btn-full">🔓 Verify & Continue</button>
+          <button id="nyxCrmMfaBackBtn" class="btn btn-secondary btn-full">← Back to Login</button>
+        </div>
+
+        <!-- Model Selector (shown after login, before model selected) -->
+        <div id="nyxCrmModelSelector" class="nyx-crm-model-selector hidden">
+          <div class="form-group">
+            <label>Select Model Profile:</label>
+            <select id="nyxCrmModelSelect">
+              <option value="">Loading models...</option>
+            </select>
+          </div>
+          <!-- OF Profile Selector (shown when model has ofProfiles[]) -->
+          <div id="nyxCrmProfileGroup" class="form-group hidden">
+            <label>Select OF Profile:</label>
+            <select id="nyxCrmProfileSelect">
+              <option value="">— Choose OF profile —</option>
+            </select>
+            <small class="nyx-profile-hint">Each OF profile writes to a separate Firestore data key</small>
+          </div>
+          <button id="nyxCrmSelectModelBtn" class="btn btn-primary btn-full">✅ Assign & Start Bridge</button>
+          <button id="nyxCrmBackBtn" class="btn btn-secondary btn-full">← Back</button>
+        </div>
+
+        <!-- Connected State (shown when fully connected) -->
+        <div id="nyxCrmConnected" class="nyx-crm-connected hidden">
+          <div class="nyx-connected-info">
+            <span class="nyx-connected-icon">✅</span>
+            <div class="nyx-connected-details">
+              <span class="nyx-connected-label">Syncing to CRM</span>
+              <span id="nyxCrmModelName" class="nyx-connected-model">—</span>
+            </div>
+          </div>
+          <button id="nyxCrmDisconnectBtn" class="btn btn-secondary btn-small btn-danger">🔌 Disconnect</button>
+        </div>
+      </div>
+
       <div class="setting-actions">
         <button id="saveSettingsBtn" class="btn btn-primary">Save</button>
         <button id="closeSettingsBtn" class="btn btn-secondary">Close</button>
@@ -467,6 +543,7 @@
       <button class="tab-btn active" data-tab="chat">💬 Chat</button>
       <button class="tab-btn" data-tab="notes">📝 Notes</button>
       <button class="tab-btn" data-tab="scripts">📋 Scripts</button>
+      <button class="tab-btn" data-tab="vault">🖼️ Vault</button>
     </div>
 
     <!-- Subscriber Info Bar (hidden by default, shown when chat is loaded) -->
@@ -675,36 +752,25 @@
         <!-- CHAT CONVERSATION VIEW (shown when a chat is open) -->
         <!-- ============================================================ -->
         <div id="chatConversationView" class="chat-conversation-view">
-        
-        <!-- Script Selection Panel (separate box) -->
-        <div id="scriptSelectionPanel" class="script-selection-panel">
-          <div class="script-selection-header">
-            <h3>Active Script</h3>
-            <div id="scriptModeIndicator" class="script-mode-indicator hidden">
-              <span class="mode-badge">Manual</span>
-            </div>
-          </div>
-          <div class="script-selection-body">
-            <div class="script-selector-row">
-              <select id="scriptSelectChat" class="script-select-chat">
-                <option value="">Loading scripts...</option>
-              </select>
-              <button id="scriptManualModeBtn" class="script-manual-btn" title="Enable manual mode">🎯</button>
-              <button id="scriptAutoModeBtn" class="script-auto-btn hidden" title="Reset to automatic">🔄</button>
-            </div>
-          </div>
-        </div>
-        
+
         <!-- Chat Display Section with integrated progress -->
         <div class="chat-section">
+
           <div class="chat-header">
             <div class="chat-header-left">
               <h3>💬 Conversation</h3>
               <span id="messageCount" class="message-count">0</span>
             </div>
             <div class="chat-header-right">
-              <button id="vaultBtn" class="btn btn-tiny" title="Media Vault">🖼️</button>
-              <button id="saveForTrainingBtn" class="btn btn-tiny" title="Save chat as training data">📚</button>
+              <select id="chatDisplayLangSelect" class="chat-display-lang-select" title="Translate displayed chat">
+                <option value="">🌐 Original</option>
+                <option value="es">🇪🇸 Spanish</option>
+                <option value="en">🇬🇧 English</option>
+                <option value="fr">🇫🇷 French</option>
+                <option value="de">🇩🇪 German</option>
+                <option value="pt">🇵🇹 Portuguese</option>
+                <option value="it">🇮🇹 Italian</option>
+              </select>
               <button id="calendarBtn" title="Script Timeline">📅</button>
               <span id="progressCounter" class="progress-counter">0/0</span>
             </div>
@@ -731,11 +797,37 @@
 
         <!-- Response Generation Section -->
         <div class="response-section">
-          <!-- AI Mode Toggle (hidden by default, shown for admins) -->
-          <div id="aiModeToggle" class="ai-mode-toggle hidden">
-            <span class="mode-label">AI:</span>
-            <button id="modeStandardBtn" class="mode-btn active" title="Default hardcoded prompt">Standard</button>
-            <button id="modeLearnedBtn" class="mode-btn" title="Inject trained Domina Brain data">🧠 Learned</button>
+          <!-- Translate Box: type in another language, get natural English -->
+          <div class="translate-box">
+            <div class="translate-box-header">
+              <span class="translate-box-title">🌐 Translate to English</span>
+              <select id="translateLangSelect" class="translate-lang-select" title="Source language">
+                <option value="es">🇪🇸 Spanish</option>
+                <option value="fr">🇫🇷 French</option>
+                <option value="de">🇩🇪 German</option>
+                <option value="pt">🇵🇹 Portuguese</option>
+                <option value="it">🇮🇹 Italian</option>
+              </select>
+            </div>
+            <textarea id="translateInput" class="translate-input" rows="1" maxlength="2000" placeholder="Escribe tu mensaje aquí..."></textarea>
+            <button id="translateBtn" class="btn btn-translate">
+              <span class="btn-icon">🔤</span>
+              <span class="btn-text">Translate</span>
+            </button>
+            <div id="translateLoading" class="translate-loading hidden">
+              <div class="spinner"></div>
+              <span>Translating...</span>
+            </div>
+            <div id="translateResult" class="translate-result hidden">
+              <p id="translateOutput" class="translate-output"></p>
+              <div class="translate-result-actions">
+                <button id="translateCopyBtn" class="btn btn-action" title="Copy to clipboard">📋 Copy</button>
+                <button id="translateSendBtn" class="btn btn-action btn-send" title="Send to chat">📤 Send</button>
+              </div>
+            </div>
+            <div id="translateError" class="translate-error hidden">
+              <p id="translateErrorMessage"></p>
+            </div>
           </div>
 
           <button id="generateBtn" class="btn btn-generate">
@@ -1066,6 +1158,32 @@
             <button id="saveScriptBtn" class="btn btn-primary">💾 Save Script</button>
             <button id="shareScriptBtn" class="btn btn-secondary">📤 Share to Profile</button>
             <button id="deleteScriptBtn" class="btn btn-secondary btn-danger">🗑️ Delete Script</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- VAULT TAB -->
+      <div id="vaultTab" class="tab-content">
+        <div class="vault-panel vault-panel-tab">
+          <div class="vault-header">
+            <h3>🖼️ Media Vault</h3>
+            <div class="vault-header-actions">
+              <button id="vaultSelectBtn" class="btn btn-tiny">Select</button>
+            </div>
+          </div>
+          <div id="vaultSelectorRow" class="vault-selector-row">
+            <!-- Vault pills populated dynamically by chatVault.js -->
+          </div>
+          <div class="vault-tabs">
+            <button class="vault-tab-btn active" data-tab="images">📷 Images</button>
+            <button class="vault-tab-btn" data-tab="videos">🎬 Videos</button>
+            <button class="vault-tab-btn" data-tab="sent">✅ Sent</button>
+          </div>
+          <div id="vaultGrid" class="vault-grid">
+            <!-- Populated dynamically by chatVault.js -->
+          </div>
+          <div class="vault-footer">
+            <button id="vaultAddBtn" class="btn btn-secondary btn-small">➕ Add Media</button>
           </div>
         </div>
       </div>
@@ -1423,34 +1541,6 @@
       </div>
     </div>
 
-    <!-- Vault Modal -->
-    <div id="vaultModal" class="vault-modal">
-      <div class="vault-backdrop"></div>
-      <div class="vault-panel">
-        <div class="vault-header">
-          <h3>🖼️ Media Vault</h3>
-          <div class="vault-header-actions">
-            <button id="vaultSelectBtn" class="btn btn-tiny">Select</button>
-            <button id="vaultCloseBtn" class="icon-btn">✕</button>
-          </div>
-        </div>
-        <div id="vaultSelectorRow" class="vault-selector-row">
-          <!-- Vault pills populated dynamically by chatVault.js -->
-        </div>
-        <div class="vault-tabs">
-          <button class="vault-tab-btn active" data-tab="images">📷 Images</button>
-          <button class="vault-tab-btn" data-tab="videos">🎬 Videos</button>
-          <button class="vault-tab-btn" data-tab="sent">✅ Sent</button>
-        </div>
-        <div id="vaultGrid" class="vault-grid">
-          <!-- Populated dynamically by chatVault.js -->
-        </div>
-        <div class="vault-footer">
-          <button id="vaultAddBtn" class="btn btn-secondary btn-small">➕ Add Media</button>
-        </div>
-      </div>
-    </div>
-
     <!-- Calendar Timeline Modal -->
     <div id="calendarModal" class="modal hidden">
       <div class="calendar-modal-content">
@@ -1489,7 +1579,7 @@
   <!-- Configuration must load first -->
   <script src="config.js"></script>
   <script src="firebase.js"></script>
-  <script src="libs/heic2any.js"></script>
   <script type="module" src="sidepanel.js"></script>
+
 </body>
 </html>

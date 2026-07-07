@@ -6,6 +6,7 @@ import { $ } from '../utils/dom.js';
 import { showNotification } from '../utils/notify.js';
 import { apiRequest } from '../utils/api.js';
 import { hideCreditsDisplay, showCreditsDisplay } from './credits.js';
+import { renderSituationalPresets } from './settings.js';
 
 // Setup profile menu event listeners
 export const setupProfileMenu = () => {
@@ -33,33 +34,22 @@ export const setupProfileMenu = () => {
     }
   });
   
-  // Settings menu item - open the settings panel in Chat tab
+  // Settings menu item - toggle the main settings panel overlay
   if (settingsMenuBtn) {
     settingsMenuBtn.addEventListener('click', () => {
       profileMenu.classList.add('hidden');
       console.log('[ProfileMenu] Settings clicked');
       
-      // Switch to Chat tab first
-      const chatTabBtn = document.querySelector('[data-tab="chat"]');
-      if (chatTabBtn && !chatTabBtn.classList.contains('active')) {
-        chatTabBtn.click();
-      }
-      
-      // Expand the settings panel
-      const settingsPanelChat = $('settingsPanelChat');
-      const settingsPanelBody = $('settingsPanelBody');
-      const settingsPanelArrow = $('settingsPanelArrow');
-      
-      if (settingsPanelChat && !settingsPanelChat.classList.contains('expanded')) {
-        settingsPanelChat.classList.remove('collapsed');
-        settingsPanelChat.classList.add('expanded');
-        if (settingsPanelBody) settingsPanelBody.classList.remove('hidden');
-        if (settingsPanelArrow) settingsPanelArrow.textContent = '▼';
+      const settingsPanel = $('settingsPanel');
+      if (settingsPanel) {
+        const isHidden = settingsPanel.classList.contains('hidden');
+        settingsPanel.classList.toggle('hidden', !isHidden);
         
-        // Scroll into view
-        setTimeout(() => {
-          settingsPanelChat.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 100);
+        // When opening, scroll to top and render situational presets
+        if (isHidden) {
+          settingsPanel.scrollTop = 0;
+          renderSituationalPresets();
+        }
       }
     });
   }

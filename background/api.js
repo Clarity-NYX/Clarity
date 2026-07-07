@@ -170,6 +170,8 @@ export const API = {
 
   // AI endpoints
   generateResponse: (data) => API.request('/ai/generate', { method: 'POST', body: JSON.stringify(data) }),
+  translateText: (data) => API.request('/ai/translate', { method: 'POST', body: JSON.stringify(data) }),
+  translateChat: (data) => API.request('/ai/translate-chat', { method: 'POST', body: JSON.stringify(data) }),
   summarizeConversation: (messages) => API.request('/ai/summarize', { method: 'POST', body: JSON.stringify({ messages }) }),
   extractInfo: (messages) => API.request('/ai/extract', { method: 'POST', body: JSON.stringify({ messages }) }),
   checkGoal: (data) => API.request('/ai/check-goal', { method: 'POST', body: JSON.stringify(data) }),

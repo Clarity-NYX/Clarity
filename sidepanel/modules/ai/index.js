@@ -1319,12 +1319,110 @@ export const sendToChat = async () => {
 // ============================================================
 
 // Setup event listeners
+// ============================================================
+// TRANSLATE MESSAGE - Type in another language, get natural English
+// ============================================================
+export const translateMessage = async () => {
+  const input = $('translateInput');
+  const langSelect = $('translateLangSelect');
+  const translateBtn = $('translateBtn');
+  const loading = $('translateLoading');
+  const resultBox = $('translateResult');
+  const output = $('translateOutput');
+  const errorBox = $('translateError');
+  const errorMsg = $('translateErrorMessage');
+
+  if (!input || !translateBtn) return;
+
+  const text = input.value.trim();
+
+  // Input validation
+  if (!text) {
+    if (errorMsg) errorMsg.textContent = 'Please type a message to translate';
+    if (errorBox) show(errorBox);
+    return;
+  }
+  if (text.length > 2000) {
+    if (errorMsg) errorMsg.textContent = 'Message is too long (max 2000 characters)';
+    if (errorBox) show(errorBox);
+    return;
+  }
+
+  const sourceLang = langSelect?.value || 'es';
+
+  // Reset UI state
+  if (errorBox) hide(errorBox);
+  if (resultBox) hide(resultBox);
+  if (loading) show(loading);
+  translateBtn.disabled = true;
+
+  try {
+    const response = await API.translateText({ text, sourceLang });
+
+    if (response?.success && response.translation) {
+      if (output) output.textContent = response.translation;
+      if (resultBox) show(resultBox);
+      updateCreditsFromResponse(response, true);
+    } else {
+      throw new Error(response?.error || 'Translation failed');
+    }
+  } catch (error) {
+    if (errorMsg) errorMsg.textContent = error.message || 'Translation failed. Please try again.';
+    if (errorBox) show(errorBox);
+  } finally {
+    if (loading) hide(loading);
+    translateBtn.disabled = false;
+  }
+};
+
+// Copy translated text to clipboard
+const copyTranslation = async () => {
+  const output = $('translateOutput');
+  const text = output?.textContent?.trim();
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    showNotification('Copied to clipboard');
+  } catch (error) {
+    showError('Failed to copy');
+  }
+};
+
+// Push translated text into the response box and send it to chat
+const sendTranslation = async () => {
+  const output = $('translateOutput');
+  const responseText = $('responseText');
+  const generatedResponse = $('generatedResponse');
+  const text = output?.textContent?.trim();
+  if (!text || !responseText) return;
+
+  responseText.textContent = text;
+  if (generatedResponse) show(generatedResponse);
+  await sendToChat();
+};
+
 export const setupAIListeners = () => {
   $('generateBtn')?.addEventListener('click', generateResponse);
   $('regenerateBtn')?.addEventListener('click', generateResponse);
   $('copyBtn')?.addEventListener('click', copyResponse);
   $('sendBtn')?.addEventListener('click', sendToChat);
   $('testMediaBtn')?.addEventListener('click', testSendMedia);
+
+  // Translate box listeners
+  $('translateBtn')?.addEventListener('click', translateMessage);
+  // Auto-grow translate textarea responsively as content changes
+  const translateInputEl = $('translateInput');
+  if (translateInputEl) {
+    const autoGrow = () => {
+      translateInputEl.style.height = 'auto';
+      translateInputEl.style.height = `${Math.min(translateInputEl.scrollHeight, 160)}px`;
+    };
+    translateInputEl.addEventListener('input', autoGrow);
+    autoGrow();
+  }
+
+  $('translateCopyBtn')?.addEventListener('click', copyTranslation);
+  $('translateSendBtn')?.addEventListener('click', sendTranslation);
   
   document.querySelectorAll('.quick-btn').forEach(btn => {
     btn.addEventListener('click', () => handleQuickAction(btn.dataset.action));
@@ -1333,6 +1431,7 @@ export const setupAIListeners = () => {
   // Setup test media panel listeners
   setupTestMediaListeners();
 };
+
 
 // ============================================================
 // GENERATE RESPONSE TEXT (for auto-chat - no UI interaction)

@@ -328,8 +328,14 @@ export async function sendSingleMessage(input, text) {
   }
 }
 
-// Main entry point for sending messages
-export async function sendMessageToChat(text) {
+// Main entry point for sending messages — instant set + click send (no typing animation)
+// 
+// Options:
+//   skipInjection (boolean) — when true, skip ALL text manipulation and only click the
+//   send button. Used by the CRM bridge when text was already pushed into the compose
+//   box via SET_DRAFT_TEXT (live typing). This prevents the visible "select-all + replace"
+//   flash that the user sees as a "typing effect".
+export async function sendMessageToChat(text, options = {}) {
   if (!text?.trim()) {
     return { success: false, error: 'No message text provided' };
   }
@@ -338,9 +344,110 @@ export async function sendMessageToChat(text) {
     return { success: false, error: 'Not on a chat page' };
   }
   
-  // Use segmented message sending with natural breaks and typos
-  console.log('[Clarity] Sending message with natural segmentation...');
-  return await sendSegmentedMessage(text);
+  const { skipInjection = false } = options;
+  console.log(`[Clarity] Sending message instantly (skipInjection=${skipInjection})...`);
+  
+  try {
+    // Step 1: Find the ProseMirror editor (same selector as SET_DRAFT_TEXT)
+    const editor = document.querySelector(
+      '.tiptap.ProseMirror.b-text-editor, ' +
+      '[contenteditable="true"].b-text-editor, ' +
+      '.b-chat__message-input [contenteditable="true"], ' +
+      '.b-make-post__main-wrapper [contenteditable="true"]'
+    );
+    
+    if (skipInjection) {
+      // CRM send path: text is already in the compose box from live typing.
+      // Do NOT touch the editor content at all — just click the send button below.
+      console.log('[Clarity] ✅ skipInjection=true — not touching editor, will only click send');
+    } else {
+      // Non-CRM path (e.g. auto-chat): check if text is already present, inject if not
+      // Normalize comparison: strip \n, \u200B (zero-width space), and collapse whitespace
+      const normalize = s => (s || '').replace(/[\n\r\u200B]/g, ' ').replace(/\s+/g, ' ').trim();
+      const currentText = editor ? normalize(editor.innerText) : '';
+      const targetText = normalize(text);
+      const textAlreadyPresent = currentText === targetText;
+      
+      if (textAlreadyPresent) {
+        console.log('[Clarity] ✅ Text already in compose box — skipping injection');
+      } else if (!editor) {
+        // Fallback: try textarea-based input
+        const input = findChatInput();
+        if (!input) return { success: false, error: 'Chat input not found' };
+        input.focus();
+        input.value = text;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      } else {
+        // Use execCommand for proper ProseMirror state sync (same as SET_DRAFT_TEXT)
+        editor.focus();
+        const sel = window.getSelection();
+        sel.selectAllChildren(editor);
+        document.execCommand('insertText', false, text);
+      }
+    }
+    
+    // Step 2: Small delay for OF's framework to register the text change
+    await sleep(200);
+    
+    // Step 3: Find and click the send button (poll for up to 1s if skipInjection)
+    const input = editor || findChatInput();
+    let sendBtn = findSendButton(input);
+    
+    // When skipInjection, the send button should already be enabled from SET_DRAFT_TEXT.
+    // Poll for up to 2s in case ProseMirror needs a moment. No injection fallback exists.
+    if (!sendBtn && skipInjection) {
+      for (let i = 0; i < 20; i++) {
+        await sleep(100);
+        sendBtn = findSendButton(input);
+        // Also try OF-specific selectors directly
+        if (!sendBtn || sendBtn.disabled) {
+          sendBtn = document.querySelector(
+            'button[at-attr="send_btn"].b-chat__btn-submit:not([disabled]), ' +
+            'button.b-chat__btn-submit:not([disabled]), ' +
+            'button.g-btn.m-rounded.b-chat__btn-submit:not([disabled])'
+          );
+        }
+        if (sendBtn && !sendBtn.disabled) break;
+      }
+    }
+    
+    if (!sendBtn) return { success: false, error: 'Send button not found' };
+    
+    sendBtn.click();
+    await sleep(300);
+    
+    // ── Post-send verification: poll for compose box to be cleared ──
+    // After clicking send, OF should clear the compose box within ~2s.
+    // If it's still populated, the message likely wasn't sent (e.g. rate limit, error).
+    const verifyEditor = document.querySelector(
+      '.tiptap.ProseMirror.b-text-editor, ' +
+      '[contenteditable="true"].b-text-editor, ' +
+      '.b-chat__message-input [contenteditable="true"], ' +
+      '.b-make-post__main-wrapper [contenteditable="true"]'
+    );
+    if (verifyEditor) {
+      const VERIFY_POLLS = 20; // 20 × 150ms = 3s max
+      let cleared = false;
+      for (let v = 0; v < VERIFY_POLLS; v++) {
+        const remaining = (verifyEditor.innerText || '').replace(/[\n\r\u200B]/g, '').trim();
+        if (!remaining) {
+          cleared = true;
+          console.log(`[Clarity] ✅ Post-send verify: compose box cleared (poll ${v + 1}/${VERIFY_POLLS})`);
+          break;
+        }
+        await sleep(150);
+      }
+      if (!cleared) {
+        const leftover = (verifyEditor.innerText || '').substring(0, 60);
+        console.warn(`[Clarity] ⚠️ Post-send verify: compose box NOT cleared after 3s — text: "${leftover}"`);
+        return { success: false, error: 'Message may not have sent — compose box not cleared after 3s' };
+      }
+    }
+    
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 }
 
 // ============================================================
@@ -743,83 +850,186 @@ async function simulatePaste(target, file) {
 // ============================================================
 
 // Set the price on uploaded media before sending
-// OnlyFans flow: click lock/price button → modal opens → type price in input → click Save
-async function setMediaPrice(price) {
+// OnlyFans flow: click lock/price button → price UI appears → type price → confirm
+// Works for both chat compose area and post creation
+export async function setMediaPrice(price) {
   try {
-    // Step 1: Click the price/lock toggle to open the price modal
+    console.log('[Clarity] 💰 setMediaPrice() called with price:', price);
+
+    // ── Step 1: Find the compose area context ──
+    const composeArea = document.querySelector(
+      '.b-make-post__main-wrapper, ' +
+      '.b-chat__message-input, ' +
+      '.b-chat__footer, ' +
+      '.b-chat__input-wrapper, ' +
+      '.b-make-post'
+    );
+    console.log('[Clarity] 💰 Compose area:', composeArea ? composeArea.className : 'NOT FOUND');
+
+    // ── Step 2: Find the price/lock toggle button ──
+    // OnlyFans uses SVG icons with <use href="#icon-..."> pattern.
+    // The lock/price button can be in the compose toolbar or footer.
     const priceToggleSelectors = [
-      'button[class*="price"]',
-      'button[class*="lock"]',
-      '[class*="price-btn"]',
-      '[class*="lock-btn"]',
-      '.b-make-post__lock-btn',
-      'button[at-attr="price_btn"]',
+      // SVG icon-based (most reliable for current OF)
+      'use[href="#icon-lock-open"]',
+      'use[href="#icon-lock-close"]',
+      'use[href="#icon-lock"]',
+      'use[href*="lock"]',
+      'use[href*="price"]',
       'svg[data-icon-name="icon-lock"]',
-      'use[href="#icon-lock"]'
+      'svg[data-icon-name*="lock"]',
+      // Class-based
+      'button[class*="lock"]',
+      'button[class*="price"]',
+      '.b-make-post__lock-btn',
+      '[class*="lock-btn"]',
+      '[class*="price-btn"]',
+      // Attribute-based
+      'button[at-attr="price_btn"]',
+      'button[at-attr="lock_btn"]',
+      // Generic class patterns (OF uses b-make-post__actions for toolbar buttons)
+      '.b-make-post__actions button',
     ];
-    
+
     let priceToggle = null;
-    for (const selector of priceToggleSelectors) {
-      const el = document.querySelector(selector);
-      if (el) {
-        priceToggle = el.closest('button') || el;
-        break;
+    let matchedSelector = null;
+
+    // First try within compose area context
+    if (composeArea) {
+      for (const selector of priceToggleSelectors) {
+        try {
+          const el = composeArea.querySelector(selector);
+          if (el) {
+            priceToggle = el.closest('button') || el;
+            matchedSelector = `[compose] ${selector}`;
+            break;
+          }
+        } catch { /* invalid selector in this context */ }
       }
     }
-    
-    if (priceToggle) {
-      console.log('[Clarity] 💰 Found price toggle button, clicking...');
-      priceToggle.click();
-      await sleep(1500); // Wait for modal to animate in
+
+    // Fallback: search globally
+    if (!priceToggle) {
+      for (const selector of priceToggleSelectors) {
+        try {
+          const el = document.querySelector(selector);
+          if (el) {
+            priceToggle = el.closest('button') || el;
+            matchedSelector = `[global] ${selector}`;
+            break;
+          }
+        } catch { /* invalid selector */ }
+      }
     }
-    
-    // Step 2: Find the price input inside the modal (with retry)
-    // The actual OnlyFans modal has: input[placeholder="Free"] with type="text" and inputmode="decimal"
-    const priceInputSelectors = [
-      '#ModalPostPrice___BV_modal_body_ input',
-      '.b-price-input input',
-      'input[placeholder="Free"]',
-      'input[autocomplete="price-input"]',
-      'input[inputmode="decimal"]',
-      'input[id^="priceInput"]'
-    ];
-    
-    let priceInput = null;
-    
-    for (let attempt = 0; attempt < 8; attempt++) {
-      for (const selector of priceInputSelectors) {
-        const el = document.querySelector(selector);
-        if (el) {
-          priceInput = el;
-          console.log('[Clarity] 💰 Found price input via:', selector, '(attempt', attempt + 1, ')');
+
+    // Last resort: scan ALL buttons in compose area for lock-related icons
+    if (!priceToggle && composeArea) {
+      const allBtns = composeArea.querySelectorAll('button');
+      for (const btn of allBtns) {
+        const html = btn.innerHTML.toLowerCase();
+        if (html.includes('lock') || html.includes('price') || html.includes('tag')) {
+          priceToggle = btn;
+          matchedSelector = `[innerHTML scan] "${html.substring(0, 60)}"`;
           break;
         }
       }
+    }
+
+    if (!priceToggle) {
+      // Log all buttons found in page for debugging
+      const allPageBtns = document.querySelectorAll('button');
+      const btnInfo = Array.from(allPageBtns).slice(0, 20).map(b => 
+        `<${b.tagName} class="${b.className.substring(0, 50)}" at-attr="${b.getAttribute('at-attr') || ''}">`
+      );
+      console.warn('[Clarity] 💰 ❌ Price toggle NOT FOUND. Buttons on page:', btnInfo);
+      console.warn('[Clarity] 💰 Make sure media is attached in the compose box before setting price.');
+      return false;
+    }
+
+    console.log('[Clarity] 💰 ✅ Found price toggle via:', matchedSelector);
+    priceToggle.click();
+    await sleep(1500); // Wait for price UI to appear (modal or inline)
+
+    // ── Step 3: Find the price input ──
+    // OF may show: a modal with input, OR an inline price input in the compose area
+    const priceInputSelectors = [
+      // Modal-based (older OF / post creation)
+      '#ModalPostPrice___BV_modal_body_ input',
+      '.modal-body input[inputmode="decimal"]',
+      '.modal-body input[placeholder="Free"]',
+      '.modal-body input[type="text"]',
+      // Inline compose area inputs
+      'input[placeholder="Free"]',
+      'input[autocomplete="price-input"]',
+      'input[inputmode="decimal"]',
+      'input[id^="priceInput"]',
+      '.b-price-input input',
+      // Generic: any visible input that appeared after clicking the toggle
+      '.b-make-post__price input',
+      '.b-chat__price input',
+      'input[name="price"]',
+      'input[type="number"]',
+    ];
+
+    let priceInput = null;
+
+    for (let attempt = 0; attempt < 10; attempt++) {
+      for (const selector of priceInputSelectors) {
+        try {
+          const el = document.querySelector(selector);
+          if (el && el.offsetParent !== null) { // Must be visible
+            priceInput = el;
+            console.log('[Clarity] 💰 Found price input via:', selector, '(attempt', attempt + 1, ')');
+            break;
+          }
+        } catch { /* invalid selector */ }
+      }
       if (priceInput) break;
+
+      // Also search within any open modal
+      const modal = document.querySelector('.modal.show, .modal[style*="display: block"], [class*="modal"][class*="active"], .b-modal');
+      if (modal) {
+        const inputs = modal.querySelectorAll('input');
+        for (const inp of inputs) {
+          if (inp.offsetParent !== null && (inp.type === 'text' || inp.type === 'number' || inp.inputMode === 'decimal')) {
+            priceInput = inp;
+            console.log('[Clarity] 💰 Found price input in modal (attempt', attempt + 1, ')');
+            break;
+          }
+        }
+      }
+      if (priceInput) break;
+
       console.log('[Clarity] 💰 Price input not found yet, retrying... (attempt', attempt + 1, ')');
       await sleep(500);
     }
-    
+
     if (!priceInput) {
-      console.log('[Clarity] ⚠️ Price input not found after retries');
+      console.warn('[Clarity] 💰 ❌ Price input not found after 10 retries.');
+      // Log what's visible on the page for debugging
+      const visibleInputs = document.querySelectorAll('input');
+      const inputInfo = Array.from(visibleInputs).map(i => 
+        `<input type="${i.type}" placeholder="${i.placeholder}" inputmode="${i.inputMode}" class="${i.className.substring(0, 40)}">`
+      );
+      console.warn('[Clarity] 💰 Visible inputs:', inputInfo);
       return false;
     }
-    
-    // Step 3: Focus and set the price value
+
+    // ── Step 4: Focus and set the price value ──
     priceInput.focus();
     priceInput.click();
     await sleep(200);
-    
+
     // Clear existing value
     priceInput.select();
     await sleep(100);
-    
+
     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
     nativeInputValueSetter.call(priceInput, '');
     priceInput.dispatchEvent(new Event('input', { bubbles: true }));
     await sleep(100);
-    
-    // Type the price digit by digit
+
+    // Type the price digit by digit for React/Vue to register each change
     const priceStr = String(price);
     for (let i = 0; i < priceStr.length; i++) {
       const currentValue = priceStr.substring(0, i + 1);
@@ -828,58 +1038,103 @@ async function setMediaPrice(price) {
       priceInput.dispatchEvent(new Event('change', { bubbles: true }));
       await sleep(80);
     }
-    
-    // Final events
+
+    // Final events to ensure UI registers the value
     priceInput.dispatchEvent(new Event('change', { bubbles: true }));
     priceInput.dispatchEvent(new Event('blur', { bubbles: true }));
     await sleep(500);
-    
-    console.log('[Clarity] 💰 Price input value:', priceInput.value);
-    
-    // Step 4: Find and click the "Save" button in the modal footer
-    // The modal has: <footer class="modal-footer"> with Cancel and Save buttons
+
+    console.log('[Clarity] 💰 Price input value after set:', priceInput.value);
+
+    // ── Step 5: Find and click the confirm/save button ──
+    // Could be "Save" in a modal footer, or a checkmark/confirm button inline
     let saveBtn = null;
-    
-    for (let attempt = 0; attempt < 5; attempt++) {
-      // Look for Save button in the modal footer
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      // Strategy A: Modal footer with Save button
       const modalFooter = document.querySelector(
         '#ModalPostPrice___BV_modal_footer_, ' +
-        '.modal-footer'
+        '.modal-footer, ' +
+        '.modal .b-modal__footer'
       );
-      
       if (modalFooter) {
         const buttons = modalFooter.querySelectorAll('button');
         for (const btn of buttons) {
           const text = btn.textContent?.trim().toLowerCase();
-          if (text === 'save' && !btn.disabled) {
+          if ((text === 'save' || text === 'ok' || text === 'confirm' || text === 'apply' || text === 'set') && !btn.disabled) {
             saveBtn = btn;
             break;
           }
         }
       }
-      
       if (saveBtn) break;
-      
-      console.log('[Clarity] 💰 Save button not enabled yet, waiting... (attempt', attempt + 1, ')');
+
+      // Strategy B: Any button with save/confirm text near the price input
+      const priceContainer = priceInput.closest('.modal, .b-make-post__price, .b-price-input, [class*="price"], form');
+      if (priceContainer) {
+        const buttons = priceContainer.querySelectorAll('button:not([disabled])');
+        for (const btn of buttons) {
+          const text = btn.textContent?.trim().toLowerCase();
+          if (text === 'save' || text === 'ok' || text === 'confirm' || text === 'apply' || text === 'set') {
+            saveBtn = btn;
+            break;
+          }
+        }
+      }
+      if (saveBtn) break;
+
+      // Strategy C: Look for primary/submit button in any visible modal
+      const modal = document.querySelector('.modal.show, .modal[style*="display: block"]');
+      if (modal) {
+        const primaryBtn = modal.querySelector('button.btn-primary:not([disabled]), button[class*="primary"]:not([disabled]), button[type="submit"]:not([disabled])');
+        if (primaryBtn) {
+          saveBtn = primaryBtn;
+          break;
+        }
+      }
+
+      // Strategy D: Scan all visible buttons for save-like text
+      const allBtns = document.querySelectorAll('button:not([disabled])');
+      for (const btn of allBtns) {
+        const text = btn.textContent?.trim().toLowerCase();
+        const isVisible = btn.offsetParent !== null;
+        if (isVisible && (text === 'save' || text === 'set price' || text === 'apply price')) {
+          saveBtn = btn;
+          break;
+        }
+      }
+      if (saveBtn) break;
+
+      console.log('[Clarity] 💰 Save/confirm button not found yet... (attempt', attempt + 1, ')');
       await sleep(500);
     }
-    
+
     if (saveBtn) {
-      console.log('[Clarity] 💰 Clicking Save button...');
+      console.log('[Clarity] 💰 Clicking Save/confirm button:', saveBtn.textContent?.trim());
       saveBtn.click();
-      await sleep(1000); // Wait for modal to close
+      await sleep(1000); // Wait for modal to close / UI to update
       console.log('[Clarity] 💰 ✅ Price $' + price + ' saved!');
       return true;
     } else {
-      console.log('[Clarity] ⚠️ Save button not found or still disabled');
-      // Try to close modal anyway
-      const cancelBtn = document.querySelector('.modal-footer button:first-child');
+      console.warn('[Clarity] 💰 ⚠️ Save button not found after retries');
+      // The price might have been set even without clicking Save (some inline UIs auto-save on blur)
+      // Check if the price value stuck
+      if (priceInput.value === priceStr) {
+        console.log('[Clarity] 💰 ℹ️ Price value is set in input — may have auto-saved on blur');
+        // Try pressing Enter as a fallback
+        priceInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+        priceInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+        await sleep(500);
+        return true;
+      }
+      // Try to close modal if one is open
+      const cancelBtn = document.querySelector('.modal-footer button:first-child, .modal button[class*="cancel"], .modal button[class*="close"]');
       if (cancelBtn) cancelBtn.click();
       return false;
     }
-    
+
   } catch (error) {
-    console.error('[Clarity] Error setting price:', error);
+    console.error('[Clarity] 💰 setMediaPrice() error:', error);
     return false;
   }
 }

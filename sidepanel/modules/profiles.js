@@ -6,6 +6,7 @@ import Store from '../state/store.js';
 import { $, escapeHtml } from '../utils/dom.js';
 import { showNotification } from '../utils/notify.js';
 import API from '../utils/api.js';
+import { setActiveProfile } from './imagePool.js';
 
 // Callback for loading scripts when profile changes
 let _loadScriptsCallback = null;
@@ -210,9 +211,15 @@ export const selectProfile = (profile) => {
   updatePersonaPreview(profile);
   
   // Reload scripts for the new profile (if profile changed)
-  if (previousProfileId !== profile.id && _loadScriptsCallback) {
-    console.log('📋 Profile changed, reloading scripts for:', profile.name);
-    _loadScriptsCallback();
+  if (previousProfileId !== profile.id) {
+    if (_loadScriptsCallback) {
+      console.log('📋 Profile changed, reloading scripts for:', profile.name);
+      _loadScriptsCallback();
+    }
+
+    // Switch vault to this profile's scoped data — each profile has its own media vault
+    console.log(`📦 Profile changed, switching vault to profile: ${profile.id} (${profile.name})`);
+    setActiveProfile(profile.id);
   }
 };
 

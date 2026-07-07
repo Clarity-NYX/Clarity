@@ -3,9 +3,21 @@
    =========================================== */
 
 .settings-panel {
-  background: var(--surface);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  background: var(--background);
   padding: var(--spacing-md);
-  border-bottom: 1px solid var(--border);
+  overflow-y: auto;
+  animation: settingsFadeIn 0.15s ease-out;
+}
+
+@keyframes settingsFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .settings-panel h3 {
@@ -367,4 +379,224 @@
 
 #grokApiKeyInput {
   font-family: monospace;
+}
+
+/* ===========================================
+   NYX CRM Connection Section
+   =========================================== */
+
+.nyx-crm-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface-light);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.nyx-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.3s ease;
+}
+
+.nyx-status-dot.offline {
+  background: var(--text-secondary);
+  box-shadow: 0 0 0 2px rgba(128, 128, 128, 0.2);
+}
+
+.nyx-status-dot.online {
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+  animation: nyx-pulse 2s ease-in-out infinite;
+}
+
+@keyframes nyx-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2); }
+  50% { box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.1); }
+}
+
+.nyx-status-text {
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* Login form */
+.nyx-crm-form {
+  margin-top: var(--spacing-sm);
+}
+
+.nyx-crm-form .form-group {
+  margin-bottom: var(--spacing-sm);
+}
+
+.nyx-crm-form label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.nyx-crm-form input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-light);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  box-sizing: border-box;
+}
+
+.nyx-crm-form input:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.nyx-crm-error {
+  padding: 8px 10px;
+  margin-bottom: var(--spacing-sm);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  color: #ef4444;
+  font-size: var(--font-size-xs);
+}
+
+/* Model selector */
+.nyx-crm-model-selector {
+  margin-top: var(--spacing-sm);
+}
+
+.nyx-crm-model-selector .form-group {
+  margin-bottom: var(--spacing-sm);
+}
+
+.nyx-crm-model-selector label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.nyx-crm-model-selector select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-light);
+  color: var(--text);
+  font-size: var(--font-size-base);
+  box-sizing: border-box;
+}
+
+.nyx-crm-model-selector select:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.nyx-crm-model-selector .btn {
+  margin-top: 6px;
+}
+
+/* Connected state */
+.nyx-crm-connected {
+  margin-top: var(--spacing-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: var(--radius-md);
+}
+
+.nyx-connected-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.nyx-connected-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.nyx-connected-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.nyx-connected-label {
+  font-size: var(--font-size-xs);
+  color: #10b981;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.nyx-connected-model {
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Full-width button helper */
+.btn-full {
+  width: 100%;
+  text-align: center;
+}
+
+/* ===========================================
+   NYX CRM MFA Verification
+   =========================================== */
+
+.nyx-mfa-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: var(--spacing-sm);
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: var(--radius-md);
+}
+
+.nyx-mfa-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.nyx-mfa-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nyx-mfa-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.nyx-mfa-desc {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  line-height: 1.4;
 }

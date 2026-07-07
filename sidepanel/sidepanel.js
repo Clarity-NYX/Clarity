@@ -12,7 +12,8 @@ import { $, $$ } from './utils/dom.js';
 // Modules
 import { showMainApp, showAuthPanel, setupAuthListeners } from './modules/auth.js';
 import { loadProfiles, setupProfileListeners } from './modules/profiles.js';
-import { renderChatMessages, setupMessageListener, loadAndSyncChat, setupTabWatcher, setupChatListListeners, forceRefreshSubscriberStats, setupVault } from './modules/chat.js';
+import { renderChatMessages, setupMessageListener, loadAndSyncChat, setupTabWatcher, setupChatListListeners, forceRefreshSubscriberStats, setupVault, openVault, handleDisplayLangChange } from './modules/chat.js';
+
 import { loadNotes, setupNotesListeners } from './modules/notes.js';
 import { loadScripts, renderScriptStages, renderScriptList, setupScriptsListeners } from './modules/scripts/index.js';
 import { setupAIListeners } from './modules/ai/index.js';
@@ -25,9 +26,11 @@ import { initOFAutoChat, renderOFAutoChatPanel } from './modules/autochat-onlyfa
 import { initVoice, renderVoiceGeneratorPanel } from './modules/voice.js';
 import { initNotifications } from './modules/notifications.js';
 import * as ImagePool from './modules/imagePool.js';
+import { triggerCloudSync as triggerVaultCloudSync } from './modules/imagePool.js';
 import { initBroadcast, openBroadcastModal, closeBroadcastModal } from './modules/broadcast.js';
 import { initLearning, setupLearningListeners } from './modules/learning.js';
 import { initSubscriberGroups, renderGroupPicker } from './modules/subscriberGroups.js';
+import { initNyxCrm } from './modules/nyxCrm.js';
 
 // ============================================================
 // TAB SWITCHING
@@ -38,7 +41,7 @@ const switchTab = (tabName) => {
     btn.classList.toggle('active', btn.dataset.tab === tabName);
   });
   
-  ['chat', 'notes', 'scripts'].forEach(name => {
+  ['chat', 'notes', 'scripts', 'vault'].forEach(name => {
     const tab = $(name + 'Tab');
     tab?.classList.toggle('active', name === tabName);
   });
@@ -56,6 +59,7 @@ const switchTab = (tabName) => {
     renderGroupPicker();
   }
   if (tabName === 'scripts') renderScriptList();
+  if (tabName === 'vault') openVault();
 };
 
 // ============================================================
@@ -77,8 +81,14 @@ const setupEventListeners = () => {
   setupCreditsListeners();
   setupChatListListeners();
   
+  // Chat display-language dropdown — translate visible messages into chosen language
+  $('chatDisplayLangSelect')?.addEventListener('change', (e) => {
+    handleDisplayLangChange(e.target.value);
+  });
+  
   // Media vault
   setupVault();
+
   
   // Learning module (Save for Training button)
   setupLearningListeners();
@@ -91,6 +101,7 @@ const setupEventListeners = () => {
     console.log('[Sidepanel] 🔄 Refresh subscriber stats clicked');
     forceRefreshSubscriberStats();
   });
+  
 };
 
 // ============================================================
@@ -153,11 +164,25 @@ const init = async () => {
         console.error('Voice init error:', e);
       }
       
-      // Load profiles (critical)
+      // Initialize Image Pool BEFORE profiles — profiles.js selectProfile() calls
+      // setActiveProfile() which needs imagePool to be initialized first so vault data
+      // at the base key gets loaded and properly saved before switching to profile-scoped keys.
+      console.log('[Sidepanel] 📸 Initializing Image Pool...');
+      await ImagePool.init();
+      
+      // Load profiles (critical) — selectProfile will call setActiveProfile to scope vault per profile
       try {
         await loadProfiles();
       } catch (e) {
         console.error('Profiles load error:', e);
+      }
+      
+      // Fallback: if no profile was loaded (e.g., zero profiles exist), trigger global vault sync.
+      // Normally, loadProfiles → selectProfile → setActiveProfile handles the per-profile sync.
+      // But if there are no profiles, no sync ever starts — we need to kick it off manually.
+      if (!Store.get('currentProfile')) {
+        console.log('[Sidepanel] No profile selected — triggering global vault cloud sync');
+        triggerVaultCloudSync();
       }
       
       // Load credits (non-critical)
@@ -208,11 +233,7 @@ const init = async () => {
       console.log('[Sidepanel] 🔔 Initializing notifications...');
       initNotifications();
       
-      // Initialize Image Pool (for Telegram)
-      console.log('[Sidepanel] 📸 Initializing Image Pool...');
-      ImagePool.init();
-      
-      // Show Image Pool only for Telegram platform
+      // Show Image Pool only for Telegram platform (init already done above, before loadProfiles)
       if (currentPlatform === 'telegram') {
         ImagePool.show();
       } else {
@@ -238,6 +259,14 @@ const init = async () => {
         await initLearning();
       } catch (e) {
         console.error('Learning init error:', e);
+      }
+      
+      // Initialize NYX CRM connection UI (settings panel section)
+      console.log('[Sidepanel] 🔗 Initializing NYX CRM connection...');
+      try {
+        initNyxCrm();
+      } catch (e) {
+        console.error('NYX CRM init error:', e);
       }
     } else {
       showAuthPanel();
