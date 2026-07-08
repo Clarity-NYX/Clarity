@@ -2880,22 +2880,37 @@ body.telegram-platform .ai-message-part::after {
 }
 
 .vault-pill-menu {
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  font-size: 13px;
+  font-weight: 700;
   line-height: 1;
-  padding: 0 2px;
-  border-radius: 4px;
+  border-radius: 50%;
   cursor: pointer;
-  opacity: 0.6;
-  transition: opacity var(--transition-base);
+  opacity: 0.85;
+  background: rgba(0, 0, 0, 0.12);
+  transition: background var(--transition-base), opacity var(--transition-base);
 }
 
 .vault-pill-menu:hover {
   opacity: 1;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
 }
 
 .vault-pill.active .vault-pill-menu {
-  opacity: 0.8;
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.25);
 }
+
+.vault-pill.active .vault-pill-menu:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
 
 .vault-add-pill {
   font-size: var(--font-size-sm);
