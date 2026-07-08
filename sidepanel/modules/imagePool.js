@@ -3,8 +3,9 @@
 // Media files are stored in Firebase Storage (via signed URLs)
 // Metadata synced to Firestore for cross-device access; localStorage as fast cache
 
-import { storeImage as uploadToStorage, storeFile as uploadFileToStorage, deleteImage as deleteFromStorage } from './scripts/imageStorage.js';
+import { storeImage as uploadToStorage, storeFile as uploadFileToStorage, deleteImage as deleteFromStorage, getImage as getFreshImageUrl } from './scripts/imageStorage.js';
 import { apiRequest } from '../utils/api.js';
+
 
 const BASE_STORAGE_KEY = 'clarity_image_pool';
 const BASE_VAULTS_KEY = 'clarity_vaults';
@@ -343,6 +344,37 @@ export async function refreshDownloadURLs() {
     console.warn('[ImagePool] ⚠️ URL refresh failed (images may not display):', err.message);
   }
 }
+
+// Per-element guard so a broken <img>/<video> only re-fetches its URL once
+// (prevents an infinite error→reload loop when the file is truly gone).
+const _mediaErrorRetried = new WeakSet();
+
+// onerror handler for media elements — a signed URL that returns 400/403 is almost
+// always expired. Re-mint a fresh URL for the item's storagePath and swap the src.
+// Exported so vault/editor/testMedia render paths can attach the same fallback.
+export async function handleMediaError(el, storagePath, itemId) {
+  if (!el || !storagePath) return;
+  if (_mediaErrorRetried.has(el)) return; // Already retried once — give up
+  _mediaErrorRetried.add(el);
+
+  try {
+    const result = await getFreshImageUrl(storagePath);
+    if (result?.downloadURL) {
+      // Update the in-memory + cached pool item so the fresh URL persists
+      if (itemId) {
+        const poolItem = imagePool.find(p => p.id === itemId);
+        if (poolItem) {
+          poolItem.downloadURL = result.downloadURL;
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
+        }
+      }
+      el.src = result.downloadURL;
+    }
+  } catch (err) {
+    console.debug('[ImagePool] Media error fallback failed:', err.message);
+  }
+}
+
 
 // Check server for remote changes — called every POLL_INTERVAL_MS
 async function pollForChanges() {
@@ -1694,11 +1726,12 @@ function renderPool() {
     return `
     <div class="image-pool-item ${isVideo ? 'video-item' : ''}" data-id="${img.id}" title="${img.description}">
       ${isVideo ? `
-        <video src="${img.imageData || img.downloadURL}" muted preload="metadata"></video>
+        <video src="${img.imageData || img.downloadURL}" data-storage-path="${img.storagePath || ''}" muted preload="metadata"></video>
         <div class="video-play-icon">▶</div>
       ` : `
-        <img src="${img.imageData || img.downloadURL}" alt="${img.name}">
+        <img src="${img.imageData || img.downloadURL}" data-storage-path="${img.storagePath || ''}" alt="${img.name}">
       `}
+
       <div class="image-pool-item-overlay">
         <div class="image-pool-item-name">${isVideo ? '🎬 ' : ''}${img.name}</div>
         <div class="image-pool-item-category">${getCategoryLabel(img.category)}</div>
@@ -1710,8 +1743,18 @@ function renderPool() {
     `;
   }).join('');
   
+  // Attach expired-URL fallback: if a signed URL 400s, re-mint a fresh one
+  container.querySelectorAll('img[data-storage-path], video[data-storage-path]').forEach(el => {
+    const storagePath = el.getAttribute('data-storage-path');
+    if (!storagePath) return;
+    const itemEl = el.closest('.image-pool-item');
+    const itemId = itemEl?.dataset?.id;
+    el.addEventListener('error', () => handleMediaError(el, storagePath, itemId), { once: false });
+  });
+
   // Add click handlers for delete
   container.querySelectorAll('.delete-btn').forEach(btn => {
+
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const id = btn.dataset.id;

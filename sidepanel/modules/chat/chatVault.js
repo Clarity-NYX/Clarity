@@ -20,7 +20,8 @@ import {
   renameVault,
   deleteVault,
   getImagesByVault,
-  moveMediaToVault
+  moveMediaToVault,
+  handleMediaError
 } from '../imagePool.js';
 
 let currentTab = 'images';   // 'images' | 'videos' | 'sent'
@@ -303,9 +304,9 @@ const renderVaultGrid = () => {
     return `
       <div class="vault-item ${isSent ? 'sent' : ''} ${selectMode ? 'select-mode' : ''} ${isSelected ? 'selected' : ''}" data-id="${item.id}">
         ${isVideo
-          ? `<video src="${thumbSrc}" muted preload="metadata"></video>
+          ? `<video src="${thumbSrc}" data-storage-path="${item.storagePath || ''}" muted preload="metadata"></video>
              <div class="vault-play-icon">▶</div>`
-          : `<img src="${thumbSrc}" alt="${item.name || ''}" loading="lazy">`
+          : `<img src="${thumbSrc}" data-storage-path="${item.storagePath || ''}" alt="${item.name || ''}" loading="lazy">`
         }
         ${selectMode ? `<div class="vault-select-check">${isSelected ? '✓' : ''}</div>` : ''}
         ${isSent ? '<div class="vault-sent-badge">✓</div>' : ''}
@@ -315,6 +316,15 @@ const renderVaultGrid = () => {
         </div>` : ''}
       </div>`;
   }).join('');
+
+  // Attach expired-URL fallback: if a signed URL 400s, re-mint a fresh one
+  grid.querySelectorAll('img[data-storage-path], video[data-storage-path]').forEach(el => {
+    const storagePath = el.getAttribute('data-storage-path');
+    if (!storagePath) return;
+    const itemEl = el.closest('.vault-item');
+    const itemId = itemEl?.dataset?.id;
+    el.addEventListener('error', () => handleMediaError(el, storagePath, itemId), { once: false });
+  });
 
   if (selectMode) {
     // In select mode: tap to select/deselect

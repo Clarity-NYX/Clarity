@@ -3,6 +3,7 @@ import Store from '../../state/store.js';
 import { $, escapeHtml } from '../../utils/dom.js';
 import { showNotification, showError } from '../../utils/notify.js';
 import { blobToBase64 } from './helpers.js';
+import { handleMediaError } from '../imagePool.js';
 
 // Currently selected image for sending
 let selectedTestMediaImage = null;
@@ -36,11 +37,20 @@ export const loadTestMediaGrid = () => {
     const safeAlt = escapeHtml(img.name || 'Image');
     return `
       <div class="test-media-item" data-index="${index}" data-id="${img.id || index}">
-        <img src="${imageUrl}" alt="${safeAlt}">
+        <img src="${imageUrl}" data-storage-path="${img.storagePath || ''}" alt="${safeAlt}">
         <div class="test-media-item-name">${safeName}</div>
       </div>
     `;
   }).join('');
+
+  // Attach expired-URL fallback: if a signed URL 400s, re-mint a fresh one
+  grid.querySelectorAll('img[data-storage-path]').forEach(el => {
+    const storagePath = el.getAttribute('data-storage-path');
+    if (!storagePath) return;
+    const itemEl = el.closest('.test-media-item');
+    const itemId = itemEl?.dataset?.id;
+    el.addEventListener('error', () => handleMediaError(el, storagePath, itemId), { once: false });
+  });
 
   // Add click handlers for selection
   grid.querySelectorAll('.test-media-item').forEach(item => {

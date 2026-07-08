@@ -692,10 +692,11 @@ const renderImagePool = async () => {
       `;
     }
     
+    const storagePath = (typeof img === 'object' && img.storagePath) ? img.storagePath : '';
     const mediaEl = isVideo
-      ? `<video src="${imageUrl}" muted preload="metadata" style="width:100%;height:100%;object-fit:cover;"></video>
+      ? `<video src="${imageUrl}" data-storage-path="${storagePath}" muted preload="metadata" style="width:100%;height:100%;object-fit:cover;"></video>
          <div class="video-play-icon" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;opacity:0.8;">▶</div>`
-      : `<img src="${imageUrl}" alt="${escapeHtml(name)}" loading="lazy">`;
+      : `<img src="${imageUrl}" data-storage-path="${storagePath}" alt="${escapeHtml(name)}" loading="lazy">`;
     
     return `
       <div class="image-pool-item${isVideo ? ' video-item' : ''}" data-index="${idx}" title="${escapeHtml(description || name)}">
@@ -709,6 +710,21 @@ const renderImagePool = async () => {
   });
   
   grid.innerHTML = imageElements.join('');
+  
+  // Attach expired-URL fallback: if a signed URL 400s, re-mint a fresh one.
+  // Guarded per-element via a dataset flag so it only retries once.
+  grid.querySelectorAll('img[data-storage-path], video[data-storage-path]').forEach(el => {
+    const storagePath = el.getAttribute('data-storage-path');
+    if (!storagePath) return;
+    el.addEventListener('error', async () => {
+      if (el.dataset.urlRetried === '1') return; // Already retried — give up
+      el.dataset.urlRetried = '1';
+      try {
+        const result = await getImage(storagePath);
+        if (result?.downloadURL) el.src = result.downloadURL;
+      } catch (_) {}
+    });
+  });
   
   // Add remove button listeners
   grid.querySelectorAll('.remove-btn').forEach(btn => {
