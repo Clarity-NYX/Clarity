@@ -3,7 +3,8 @@
 // Media files are stored in Firebase Storage (via signed URLs)
 // Metadata synced to Firestore for cross-device access; localStorage as fast cache
 
-import { storeImage as uploadToStorage, storeFile as uploadFileToStorage, deleteImage as deleteFromStorage, getImage as getFreshImageUrl } from './scripts/imageStorage.js';
+import { storeImage as uploadToStorage, storeFile as uploadFileToStorage, deleteImage as deleteFromStorage } from './scripts/imageStorage.js';
+
 import { apiRequest } from '../utils/api.js';
 
 
@@ -349,31 +350,89 @@ export async function refreshDownloadURLs() {
 // (prevents an infinite error→reload loop when the file is truly gone).
 const _mediaErrorRetried = new WeakSet();
 
+// Batched media-error recovery.
+// When many thumbnails share an expired signed URL, every <img> fires `error`
+// almost simultaneously. Firing one /storage/url request per image floods the
+// server (HTTP 429). Instead we queue failed elements and flush them in a single
+// debounced batch call to /storage/vault/refresh-urls (max 200 storagePaths per
+// request), then swap each element's src from the batch result.
+const _mediaErrorQueue = new Map(); // storagePath → { els: Set<HTMLElement>, itemId }
+let _mediaErrorFlushTimer = null;
+const MEDIA_ERROR_DEBOUNCE_MS = 400; // batch errors that arrive within 400ms
+const MEDIA_ERROR_BATCH_LIMIT = 200; // server cap per refresh-urls call
+
+async function _flushMediaErrorQueue() {
+  _mediaErrorFlushTimer = null;
+  if (_mediaErrorQueue.size === 0) return;
+
+  // Snapshot + clear the queue so new errors during the request re-batch cleanly
+  const entries = Array.from(_mediaErrorQueue.entries());
+  _mediaErrorQueue.clear();
+
+  for (let i = 0; i < entries.length; i += MEDIA_ERROR_BATCH_LIMIT) {
+    const chunk = entries.slice(i, i + MEDIA_ERROR_BATCH_LIMIT);
+    const payload = chunk.map(([storagePath, info]) => ({
+      id: info.itemId || storagePath,
+      storagePath
+    }));
+
+    try {
+      const result = await apiRequest('/storage/vault/refresh-urls', {
+        method: 'POST',
+        body: JSON.stringify({ items: payload })
+      });
+
+      if (result?.success && Array.isArray(result.items)) {
+        // Map refreshed URLs back by id → apply to every element awaiting that path
+        const byId = new Map(result.items.map(r => [r.id, r.downloadURL]));
+        let poolChanged = false;
+
+        for (const [storagePath, info] of chunk) {
+          const freshUrl = byId.get(info.itemId || storagePath);
+          if (!freshUrl) continue;
+
+          // Persist the fresh URL onto the cached pool item
+          if (info.itemId) {
+            const poolItem = imagePool.find(p => p.id === info.itemId);
+            if (poolItem) { poolItem.downloadURL = freshUrl; poolChanged = true; }
+          }
+          // Swap src on all elements that were showing this path
+          for (const el of info.els) {
+            if (el && el.isConnected) el.src = freshUrl;
+          }
+        }
+
+        if (poolChanged) {
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
+        }
+      }
+    } catch (err) {
+      console.debug('[ImagePool] Batched media URL refresh failed:', err.message);
+    }
+  }
+}
+
 // onerror handler for media elements — a signed URL that returns 400/403 is almost
-// always expired. Re-mint a fresh URL for the item's storagePath and swap the src.
+// always expired. Queues the element for a batched, debounced URL refresh so a
+// grid of broken thumbnails triggers ONE server call instead of dozens (429).
 // Exported so vault/editor/testMedia render paths can attach the same fallback.
-export async function handleMediaError(el, storagePath, itemId) {
+export function handleMediaError(el, storagePath, itemId) {
   if (!el || !storagePath) return;
   if (_mediaErrorRetried.has(el)) return; // Already retried once — give up
   _mediaErrorRetried.add(el);
 
-  try {
-    const result = await getFreshImageUrl(storagePath);
-    if (result?.downloadURL) {
-      // Update the in-memory + cached pool item so the fresh URL persists
-      if (itemId) {
-        const poolItem = imagePool.find(p => p.id === itemId);
-        if (poolItem) {
-          poolItem.downloadURL = result.downloadURL;
-          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
-        }
-      }
-      el.src = result.downloadURL;
-    }
-  } catch (err) {
-    console.debug('[ImagePool] Media error fallback failed:', err.message);
+  let entry = _mediaErrorQueue.get(storagePath);
+  if (!entry) {
+    entry = { els: new Set(), itemId: itemId || null };
+    _mediaErrorQueue.set(storagePath, entry);
   }
+  entry.els.add(el);
+  if (itemId && !entry.itemId) entry.itemId = itemId;
+
+  clearTimeout(_mediaErrorFlushTimer);
+  _mediaErrorFlushTimer = setTimeout(_flushMediaErrorQueue, MEDIA_ERROR_DEBOUNCE_MS);
 }
+
 
 
 // Check server for remote changes — called every POLL_INTERVAL_MS

@@ -10,7 +10,9 @@ import { getScriptOrder, loadTimingSettings, saveTimingSettings } from './timing
 import { renderEditorSections, addNewSection, setSectionsCallbacks } from './sections.js';
 import { setActionModalCallbacks, setupActionModalListeners } from './actionModal.js';
 import { populateScriptDropdown, createNewScript, getCurrentProfileId, loadGlobalTemplates, copyTemplateToProfile, copyAllTemplatesToProfile, saveScriptAsTemplate } from './core.js';
-import { initImageStorage, storeImage, getImage, getImages, deleteImage, getStorageStats } from './imageStorage.js';
+import { initImageStorage, storeImage, getImages, deleteImage, getStorageStats } from './imageStorage.js';
+import { handleMediaError } from '../imagePool.js';
+
 
 // Editor state
 let editingScript = null;
@@ -711,20 +713,16 @@ const renderImagePool = async () => {
   
   grid.innerHTML = imageElements.join('');
   
-  // Attach expired-URL fallback: if a signed URL 400s, re-mint a fresh one.
-  // Guarded per-element via a dataset flag so it only retries once.
+  // Attach expired-URL fallback via the shared batched handler. When many
+  // thumbnails 400 at once, handleMediaError debounces + batches the re-mint
+  // into a single /storage/vault/refresh-urls call (avoids HTTP 429 flood).
   grid.querySelectorAll('img[data-storage-path], video[data-storage-path]').forEach(el => {
     const storagePath = el.getAttribute('data-storage-path');
     if (!storagePath) return;
-    el.addEventListener('error', async () => {
-      if (el.dataset.urlRetried === '1') return; // Already retried — give up
-      el.dataset.urlRetried = '1';
-      try {
-        const result = await getImage(storagePath);
-        if (result?.downloadURL) el.src = result.downloadURL;
-      } catch (_) {}
-    });
+    const itemId = editingScript.imagePool?.[parseInt(el.closest('.image-pool-item')?.dataset.index)]?.id;
+    el.addEventListener('error', () => handleMediaError(el, storagePath, itemId));
   });
+
   
   // Add remove button listeners
   grid.querySelectorAll('.remove-btn').forEach(btn => {
