@@ -32,6 +32,9 @@
 @import url('./features/_broadcast.css');
 @import url('./features/_learning.css');
 
+/* Compact overrides — MUST be last so short-viewport rules win the cascade */
+@import url('./base/_compact.css');
+
 /* ===========================================
    IMAGE-RELATED UI ELEMENTS
    (Re-enabled for Telegram)

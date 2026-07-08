@@ -1,9 +1,11 @@
 // ============================================================
 // DISPLAYED-CHAT TRANSLATION MODULE
 // Translates the visible conversation into a chosen language with
-// native-sounding output (not word-for-word). Translations are keyed
-// by message key so they survive re-renders, persisted per-subscriber,
-// and auto-applied to newly arriving messages.
+// native-sounding output (not word-for-word). The chosen language is a
+// GLOBAL preference — set it once and every chat opens already translated
+// into that language. Translation caches are keyed by message and stored
+// per-subscriber so they survive re-renders and avoid re-paying to
+// translate the same text twice.
 // ============================================================
 
 import Store from '../../state/store.js';
@@ -19,22 +21,42 @@ const MAX_TRANSLATE_MESSAGES = 200;
 // Guard against overlapping auto-translate passes for new messages
 let autoTranslateInFlight = false;
 
-// Per-subscriber storage keys
-const langStorageKey = (subId) => `chatDisplayLang_${subId}`;
+// GLOBAL display-language preference (applies to every chat)
+const GLOBAL_LANG_KEY = 'chatDisplayLang_global';
+
+// Per-subscriber translation cache key (translations are chat-specific)
 const transStorageKey = (subId) => `chatTranslations_${subId}`;
 
-// Persist the active display language + translation map for a subscriber
-const persistDisplayState = async (subId, lang, translations) => {
-  if (!subId) return;
+// Read the global display-language preference
+const getGlobalLang = async () => {
   try {
-    await chrome.storage.local.set({
-      [langStorageKey(subId)]: lang || '',
-      [transStorageKey(subId)]: translations || {}
-    });
+    const data = await chrome.storage.local.get(GLOBAL_LANG_KEY);
+    return data[GLOBAL_LANG_KEY] || '';
   } catch (err) {
-    console.error('[Chat] Failed to persist display translation state:', err);
+    console.error('[Chat] Failed to read global display language:', err);
+    return '';
   }
 };
+
+// Persist the global display language (shared across all chats)
+const persistGlobalLang = async (lang) => {
+  try {
+    await chrome.storage.local.set({ [GLOBAL_LANG_KEY]: lang || '' });
+  } catch (err) {
+    console.error('[Chat] Failed to persist global display language:', err);
+  }
+};
+
+// Persist the per-subscriber translation cache
+const persistTranslations = async (subId, translations) => {
+  if (!subId) return;
+  try {
+    await chrome.storage.local.set({ [transStorageKey(subId)]: translations || {} });
+  } catch (err) {
+    console.error('[Chat] Failed to persist chat translations:', err);
+  }
+};
+
 
 // Collect translatable items (skip empty / media-only messages).
 // If onlyMissing is true, skip messages that already have a translation.
@@ -82,19 +104,23 @@ export const handleDisplayLangChange = async (targetLang) => {
   const select = $('chatDisplayLangSelect');
   const subId = Store.get('currentSubscriberId');
 
-  // Empty value → revert to original text
+  // Empty value → revert to original text (globally)
   if (!targetLang) {
     Store.set('chatDisplayLang', '');
     Store.set('chatTranslations', null);
-    await persistDisplayState(subId, '', {});
+    await persistGlobalLang('');
     renderChatMessages();
     return;
   }
 
+  // Save the global language preference immediately so it applies to every
+  // chat, even if the current one has no translatable messages.
+  Store.set('chatDisplayLang', targetLang);
+  await persistGlobalLang(targetLang);
+
   const items = collectItems({}, false);
   if (!items.length) {
-    showNotification('No text messages to translate');
-    if (select) select.value = '';
+    showNotification(`🌐 Language set — chats will show in ${targetLang.toUpperCase()}`);
     return;
   }
 
@@ -103,19 +129,18 @@ export const handleDisplayLangChange = async (targetLang) => {
 
   try {
     const map = await translateItems(items, targetLang, {});
-    Store.set('chatDisplayLang', targetLang);
     Store.set('chatTranslations', map);
-    await persistDisplayState(subId, targetLang, map);
+    await persistTranslations(subId, map);
     renderChatMessages();
     showNotification('✅ Chat translated');
   } catch (err) {
     console.error('[Chat] Translate chat error:', err);
     showError('Failed to translate chat: ' + (err.message || 'unknown error'));
-    if (select) select.value = Store.get('chatDisplayLang') || '';
   } finally {
     if (select) select.disabled = false;
   }
 };
+
 
 // ============================================================
 // RESTORE — called when a chat opens: reload the saved language +
@@ -125,24 +150,25 @@ export const restoreDisplayLang = async () => {
   const subId = Store.get('currentSubscriberId');
   const select = $('chatDisplayLangSelect');
 
+  // The language is a GLOBAL preference, so read it regardless of which
+  // chat is open. Reflect it in the dropdown immediately.
+  const lang = await getGlobalLang();
+  Store.set('chatDisplayLang', lang);
+  if (select) select.value = lang;
+
   if (!subId) {
-    Store.set('chatDisplayLang', '');
     Store.set('chatTranslations', null);
-    if (select) select.value = '';
     return;
   }
 
   try {
-    const data = await chrome.storage.local.get([langStorageKey(subId), transStorageKey(subId)]);
-    const lang = data[langStorageKey(subId)] || '';
+    const data = await chrome.storage.local.get(transStorageKey(subId));
     const translations = data[transStorageKey(subId)] || null;
-
-    Store.set('chatDisplayLang', lang);
     Store.set('chatTranslations', translations);
-    if (select) select.value = lang;
 
     if (lang) {
-      // Fill in any messages that don't yet have a translation (new history, etc.)
+      // Auto-translate this chat into the global language, filling any gaps
+      // (cached translations are reused, only new messages cost credits).
       await translateNewMessages();
     } else {
       renderChatMessages();
@@ -151,6 +177,7 @@ export const restoreDisplayLang = async () => {
     console.error('[Chat] Failed to restore display translation state:', err);
   }
 };
+
 
 // ============================================================
 // AUTO-TRANSLATE NEW MESSAGES — called after incoming messages render.
@@ -177,10 +204,11 @@ export const translateNewMessages = async () => {
     if (Store.get('currentSubscriberId') !== subId) return;
 
     Store.set('chatTranslations', map);
-    await persistDisplayState(subId, targetLang, map);
+    await persistTranslations(subId, map);
     renderChatMessages();
   } catch (err) {
     console.error('[Chat] Auto-translate new messages error:', err);
+
   } finally {
     autoTranslateInFlight = false;
   }
