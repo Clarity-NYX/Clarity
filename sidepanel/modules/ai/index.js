@@ -1375,6 +1375,22 @@ const copyTranslation = async () => {
   }
 };
 
+// Reset the translate box back to a clean state, ready for the next entry
+const resetTranslateBox = () => {
+  const input = $('translateInput');
+  const output = $('translateOutput');
+  const resultBox = $('translateResult');
+  const errorBox = $('translateError');
+
+  if (input) {
+    input.value = '';
+    input.style.height = 'auto';
+  }
+  if (output) output.textContent = '';
+  if (resultBox) hide(resultBox);
+  if (errorBox) hide(errorBox);
+};
+
 // Push translated text into the response box and send it to chat
 const sendTranslation = async () => {
   const output = $('translateOutput');
@@ -1386,7 +1402,11 @@ const sendTranslation = async () => {
   responseText.textContent = text;
   if (generatedResponse) show(generatedResponse);
   await sendToChat();
+
+  // Clear the translate frame so the UI is ready for the next translation
+  resetTranslateBox();
 };
+
 
 export const setupAIListeners = () => {
   $('regenerateBtn')?.addEventListener('click', generateResponse);
