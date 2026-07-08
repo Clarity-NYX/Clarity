@@ -44,3 +44,10 @@ server/
 *.tmp
 *.temp
 .cache/
+
+# Audit / internal reports (keep local, do not publish)
+CODE_CLEANUP_REPORT.md
+NEXT_LEVEL_IMPROVEMENTS.md
+PERFORMANCE_AUDIT_REPORT.md
+SECURITY_AUDIT_REPORT.md
+
