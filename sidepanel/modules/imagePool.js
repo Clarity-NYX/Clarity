@@ -859,11 +859,13 @@ async function syncFromServer() {
     _cloudSynced = true;
     _lastSyncTime = Date.now();
 
-    // ── BRIDGE-INDEPENDENT PULL: profile-scoped Clarity server ──
-    // Pull anything on the profile-scoped server doc that the Firestore bridge
-    // didn't deliver (e.g. bridge disconnected), then push any local-only items so
-    // OTHER same-account devices can retrieve them via the server. This is the fix
-    // for "media only shows on my laptop".
+    // ── BRIDGE-INDEPENDENT SYNC: profile-scoped Clarity server doc ──
+    // This is the CROSS-DEVICE BACKBONE. Same-account devices that do NOT have the
+    // NYX CRM bridge connected (e.g. employees logged into the shared account) can
+    // ONLY read the vault from this profile-scoped server doc — they can't reach the
+    // owner's NYX CRM Firestore. So we must (1) pull anything the bridge didn't
+    // deliver and (2) UNCONDITIONALLY mirror our authoritative vault up to the server
+    // doc so every other device can retrieve it.
     try {
       const pulled = await pullProfileServerVault({ force: true });
       if (pulled && pulled.added > 0) {
@@ -875,16 +877,20 @@ async function syncFromServer() {
           await refreshDownloadURLs().catch(() => {});
         }
       }
-      // Push local-only items up so other devices see them via the server doc
-      if (pulled && pulled.serverIds) {
-        const localOnly = imagePool.filter(i => !pulled.serverIds.has(i.id));
-        if (localOnly.length > 0) {
-          console.log(`[ImagePool] 🔄 Pushing ${localOnly.length} local-only items to profile server doc...`);
-          await pushPoolToServer();
-          await pushVaultsToServer();
-        }
+
+      // ALWAYS mirror the current vault up to the profile-scoped server doc when we
+      // have items. This is INTENTIONALLY decoupled from the pull result above: if
+      // the pull failed (returned null) or the owner's data only lives in NYX CRM
+      // Firestore, the server doc would otherwise stay empty and employees would see
+      // a blank vault. The PUT is idempotent, so re-pushing identical data is safe.
+      // This is the fix for "media only shows on my laptop, not my employees'".
+      if (imagePool.length > 0) {
+        console.log(`[ImagePool] 🔄 Mirroring ${imagePool.length} items to profile server doc (cross-device backbone)...`);
+        await pushPoolToServer().catch(() => {});
+        await pushVaultsToServer().catch(() => {});
       }
     } catch (_) {}
+
 
     // If we had local-only items, push the merged data back to Firestore
     if (imagePool.length > 0) {
