@@ -338,9 +338,14 @@ export async function refreshDownloadURLs() {
   }
 }
 
-// Per-element guard so a broken <img>/<video> only re-fetches its URL once
-// (prevents an infinite error→reload loop when the file is truly gone).
-const _mediaErrorRetried = new WeakSet();
+// Per-element retry tracking. A broken <img>/<video> is re-fetched up to
+// MAX_MEDIA_RETRIES times before we give up (prevents an infinite error→reload
+// loop when the file is truly gone). Using a WeakMap of counts — instead of a
+// one-shot WeakSet — means a TRANSIENT failure (e.g. a 429 storm or network
+// blip) no longer permanently blacklists the element: it gets more chances.
+const _mediaErrorRetries = new WeakMap(); // el → attempt count
+const MAX_MEDIA_RETRIES = 3;
+
 
 // Batched media-error recovery.
 // When many thumbnails share an expired signed URL, every <img> fires `error`
@@ -352,6 +357,8 @@ const _mediaErrorQueue = new Map(); // storagePath → { els: Set<HTMLElement>, 
 let _mediaErrorFlushTimer = null;
 const MEDIA_ERROR_DEBOUNCE_MS = 400; // batch errors that arrive within 400ms
 const MEDIA_ERROR_BATCH_LIMIT = 200; // server cap per refresh-urls call
+const MEDIA_ERROR_RETRY_BACKOFF_MS = 3000; // wait 3s before retrying after a failed batch
+
 
 async function _flushMediaErrorQueue() {
   _mediaErrorFlushTimer = null;
@@ -400,9 +407,19 @@ async function _flushMediaErrorQueue() {
       }
     } catch (err) {
       console.debug('[ImagePool] Batched media URL refresh failed:', err.message);
+      // Transient failure (e.g. 429 storm / network blip). A failed refresh doesn't
+      // change el.src, so no new error event fires on its own — without this the
+      // image would stay stuck. Re-queue this chunk and retry with backoff so the
+      // thumbnails recover automatically once the rate-limit window clears.
+      for (const [storagePath, info] of chunk) {
+        if (!_mediaErrorQueue.has(storagePath)) _mediaErrorQueue.set(storagePath, info);
+      }
+      clearTimeout(_mediaErrorFlushTimer);
+      _mediaErrorFlushTimer = setTimeout(_flushMediaErrorQueue, MEDIA_ERROR_RETRY_BACKOFF_MS);
     }
   }
 }
+
 
 // onerror handler for media elements — a signed URL that returns 400/403 is almost
 // always expired. Queues the element for a batched, debounced URL refresh so a
@@ -410,8 +427,13 @@ async function _flushMediaErrorQueue() {
 // Exported so vault/editor/testMedia render paths can attach the same fallback.
 export function handleMediaError(el, storagePath, itemId) {
   if (!el || !storagePath) return;
-  if (_mediaErrorRetried.has(el)) return; // Already retried once — give up
-  _mediaErrorRetried.add(el);
+
+  // Bounded retry: give each element up to MAX_MEDIA_RETRIES chances. A transient
+  // failure no longer permanently blacklists the image — only a genuinely-missing
+  // file (which keeps failing) eventually exhausts retries.
+  const attempts = _mediaErrorRetries.get(el) || 0;
+  if (attempts >= MAX_MEDIA_RETRIES) return;
+  _mediaErrorRetries.set(el, attempts + 1);
 
   let entry = _mediaErrorQueue.get(storagePath);
   if (!entry) {
