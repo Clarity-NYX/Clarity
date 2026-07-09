@@ -24,8 +24,9 @@ let _poolLoaded = false;
 let _vaultsLoaded = false;
 let _cloudSynced = false; // Whether we've pulled from server this session
 let _lastSyncTime = 0;    // Timestamp of last successful sync
-let _activeProfileId = null; // Current NYX CRM profile — scopes vault per profile
+let _activeProfileId = null; // Current model profile — scopes vault per profile
 let _lastUrlRefreshTime = 0; // Timestamp of last successful refreshDownloadURLs() call
+
 
 // ============================================================
 // CLOUD SYNC — Debounced push to Firestore via server API
@@ -45,23 +46,17 @@ let _lastKnownVersions = { pool: 0, vaults: 0, sent: 0 };
 let _isSyncing = false; // Prevent overlapping syncs
 let _syncGeneration = 0; // Incremented on every profile switch — used to discard stale async results
 
-// ── PROFILE-MODE FIRESTORE POLLING ──
-// In profile mode, Clarity server API is skipped. Instead, we poll NYX CRM Firestore
-// directly (via background bridge) to detect CRM-added items in near-realtime.
-let _profilePollInterval = null;
-const PROFILE_POLL_INTERVAL_MS = 15000; // 15s — check for CRM changes
-let _lastFirestoreSyncedAt = ''; // Track `syncedAt` field to detect changes
-
 // ============================================================
-// PER-PROFILE VAULT SCOPING — separate vault for each NYX CRM profile
+// PER-PROFILE VAULT SCOPING — separate vault for each model profile
 // ============================================================
-// When a NYX CRM profile is selected, localStorage keys are prefixed
+// When a profile is selected, localStorage keys are prefixed
 // with the profileId so each profile has its own independent media pool.
 // Calling setActiveProfile() saves the current profile's data, switches
 // keys, and loads the new profile's data from localStorage + cloud.
 
-/** Switch to a different NYX CRM profile — scopes vault data per profile.
- *  @param {string|null} profileId — NYX profile ID (e.g. "p_abc123"), or null to reset to global
+/** Switch to a different model profile — scopes vault data per profile.
+ *  @param {string|null} profileId — profile ID (e.g. "p_abc123"), or null to reset to global
+
  *  @param {object} [opts]
  *  @param {boolean} [opts.skipSync=false] — if true, skip cloud sync (for fast reconnect) */
 export function setActiveProfile(profileId, { skipSync = false } = {}) {
@@ -110,7 +105,6 @@ export function setActiveProfile(profileId, { skipSync = false } = {}) {
   clearTimeout(_poolSyncTimer);
   clearTimeout(_vaultsSyncTimer);
   clearTimeout(_sentSyncTimer);
-  clearTimeout(_nyxVaultSyncTimer);
   stopPolling();
 
   // Load new profile's data from localStorage (fast)
@@ -129,10 +123,9 @@ export function setActiveProfile(profileId, { skipSync = false } = {}) {
     }).catch(() => {});
   } else if (newId) {
     // skipSync + profile active: mark as synced immediately so saves work.
-    // Profile mode doesn't use Clarity server — localStorage is the source of truth.
+    // Profile mode uses the profile-scoped Clarity server doc; localStorage is the cache.
     _cloudSynced = true;
     _lastSyncTime = Date.now();
-    notifyNyxCrmVaultChanged();
     // Notify vault modal (if open) to refresh with the new profile's data
     window.dispatchEvent(new CustomEvent('vault-pool-updated'));
   }
@@ -171,8 +164,8 @@ function schedulePoolSync() {
     return;
   }
   // Push to the Clarity server in BOTH global and profile mode. The server doc is
-  // profile-scoped (via profileId), so uploads reliably reach Firebase even when the
-  // NYX CRM bridge is disconnected — other same-account devices then pick them up.
+  // profile-scoped (via profileId), so uploads reliably reach Firebase and other
+  // same-account devices then pick them up.
   clearTimeout(_poolSyncTimer);
 
   _poolSyncTimer = setTimeout(() => pushPoolToServer(), SYNC_DEBOUNCE_MS);
@@ -245,8 +238,7 @@ async function pushSentToServer() {
 }
 
 // Pull the profile-scoped vault from the Clarity server and MERGE any items not
-// already present locally. This is the bridge-independent path: uploads reach the
-// profile-scoped server doc even when the NYX CRM bridge is down, so other
+// already present locally: uploads reach the profile-scoped server doc so other
 // same-account devices pick them up here.
 //
 // Version-gated: fetches the lightweight /version endpoint first and skips the full
@@ -439,10 +431,8 @@ export function handleMediaError(el, storagePath, itemId) {
 async function pollForChanges() {
   if (_isSyncing) return;
 
-  // PROFILE MODE: poll the profile-scoped Clarity server doc (bridge-independent).
-
-  // This complements the 15s Firestore poll — it catches items other same-account
-  // devices pushed to the server even when the NYX CRM bridge is disconnected.
+  // PROFILE MODE: poll the profile-scoped Clarity server doc for items other
+  // same-account devices (e.g. employees) pushed to the server.
   if (_activeProfileId) {
     if (!_cloudSynced || document.hidden) return;
     try {
@@ -573,153 +563,13 @@ function stopPolling() {
     clearInterval(_pollInterval);
     _pollInterval = null;
   }
-  stopProfilePolling(); // Also stop Firestore polling when switching profiles
   document.removeEventListener('visibilitychange', _onVisibilityChange);
 }
 
 function _onVisibilityChange() {
   if (!document.hidden && _cloudSynced) {
     // Tab became visible — poll immediately for any changes missed while hidden
-    if (_activeProfileId) {
-      pollFirestoreForChanges();
-    } else {
-      pollForChanges();
-    }
-  }
-}
-
-// ============================================================
-// PROFILE-MODE FIRESTORE POLLING — Detect CRM vault changes
-// ============================================================
-// When a profile is active, Clarity's server API is skipped. Instead, we poll
-// NYX CRM Firestore via the background bridge to detect items added/deleted
-// by the CRM dashboard. This keeps both tools in sync in near-realtime.
-
-/** Start polling NYX CRM Firestore for vault changes (profile mode only) */
-function startProfilePolling() {
-  stopProfilePolling();
-  if (!_activeProfileId) return;
-
-  _profilePollInterval = setInterval(pollFirestoreForChanges, PROFILE_POLL_INTERVAL_MS);
-  document.addEventListener('visibilitychange', _onVisibilityChange);
-  console.log(`[ImagePool] 📡 Profile Firestore polling started (every ${PROFILE_POLL_INTERVAL_MS / 1000}s)`);
-}
-
-/** Stop Firestore polling for profile mode */
-function stopProfilePolling() {
-  if (_profilePollInterval) {
-    clearInterval(_profilePollInterval);
-    _profilePollInterval = null;
-  }
-}
-
-/** Poll NYX CRM Firestore for changes — called every PROFILE_POLL_INTERVAL_MS.
- *  Fetches vault_data from Firestore and checks if syncedAt changed.
- *  If changed, merges new items into the local pool. */
-async function pollFirestoreForChanges() {
-  if (_isSyncing || !_activeProfileId || !_cloudSynced) return;
-  if (document.hidden) return; // Skip when tab is hidden
-
-  try {
-    _isSyncing = true;
-
-    const result = await new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve({ success: false, error: 'timeout' }), 10000);
-      try {
-        chrome.runtime.sendMessage(
-          { type: 'NYX_CRM_FETCH_VAULT', activeProfileId: _activeProfileId },
-          (response) => {
-            clearTimeout(timeout);
-            resolve(response || { success: false, error: 'no response' });
-          }
-        );
-      } catch (e) {
-        clearTimeout(timeout);
-        resolve({ success: false, error: e.message });
-      }
-    });
-
-    if (!result.success) return;
-
-    const fsPool = Array.isArray(result.pool) ? result.pool : [];
-    const fsVaults = Array.isArray(result.vaults) ? result.vaults : [];
-    const fsSent = (result.sent && typeof result.sent === 'object') ? result.sent : {};
-
-    // Quick change detection: compare pool count + ID set
-    const localIds = new Set(imagePool.map(i => i.id));
-    const firestoreIds = new Set(fsPool.map(i => i.id));
-
-    // Check for new items FROM Firestore (CRM-added)
-    const newFromCrm = fsPool.filter(i => !localIds.has(i.id));
-    // Check for items deleted in Firestore (CRM-deleted)
-    const deletedInCrm = imagePool.filter(i => !firestoreIds.has(i.id));
-    // Check for vault changes
-    const localVaultIds = new Set(vaults.map(v => v.id));
-    const fsVaultIds = new Set(fsVaults.map(v => v.id));
-    const newVaults = fsVaults.filter(v => !localVaultIds.has(v.id));
-
-    // Check sent map changes (simple: compare key counts + total entry counts)
-    const localSentTotal = Object.values(sentImagesMap).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0);
-    const fsSentTotal = Object.values(fsSent).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0);
-    const sentChanged = localSentTotal !== fsSentTotal || Object.keys(sentImagesMap).length !== Object.keys(fsSent).length;
-
-    if (newFromCrm.length === 0 && deletedInCrm.length === 0 && newVaults.length === 0 && !sentChanged) {
-      return; // No changes detected
-    }
-
-    console.log(`[ImagePool] 🔔 Firestore changes detected: +${newFromCrm.length} new, -${deletedInCrm.length} deleted, ${newVaults.length} new vaults, sent=${sentChanged ? 'changed' : 'same'}`);
-
-    let needsRender = false;
-
-    // Merge new CRM items into local pool
-    if (newFromCrm.length > 0) {
-      imagePool = [...imagePool, ...newFromCrm];
-      needsRender = true;
-    }
-
-    // Remove items deleted in CRM
-    if (deletedInCrm.length > 0) {
-      const deletedIds = new Set(deletedInCrm.map(i => i.id));
-      imagePool = imagePool.filter(i => !deletedIds.has(i.id));
-      needsRender = true;
-    }
-
-    // Merge vaults
-    if (newVaults.length > 0) {
-      vaults = [...vaults, ...newVaults];
-      if (!vaults.find(v => v.id === 'default')) {
-        vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
-      }
-      try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
-      needsRender = true;
-    }
-
-    // Merge sent map (union — CRM may have marked/unmarked sent)
-    if (sentChanged) {
-      const mergedSent = { ...fsSent };
-      for (const [subId, ids] of Object.entries(sentImagesMap)) {
-        if (!mergedSent[subId]) {
-          mergedSent[subId] = ids;
-        } else if (Array.isArray(ids) && Array.isArray(mergedSent[subId])) {
-          const combined = new Set([...mergedSent[subId], ...ids]);
-          mergedSent[subId] = [...combined];
-        }
-      }
-      sentImagesMap = mergedSent;
-      try { localStorage.setItem(SENT_IMAGES_KEY, JSON.stringify(sentImagesMap)); } catch (_) {}
-    }
-
-    // Update localStorage cache
-    if (needsRender) {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
-      renderPool();
-      window.dispatchEvent(new CustomEvent('vault-pool-updated'));
-      console.log(`[ImagePool] 🔄 Profile poll: UI updated (${imagePool.length} items, ${vaults.length} vaults)`);
-    }
-  } catch (err) {
-    console.debug('[ImagePool] Profile poll failed:', err.message);
-  } finally {
-    _isSyncing = false;
+    pollForChanges();
   }
 }
 
@@ -746,144 +596,49 @@ async function waitForAuth(maxWaitMs = 8000) {
 // 5. Replace local pool with verified server data
 // This guarantees: what you see = what's on Firebase = what other devices see
 //
-// PROFILE SCOPING: When a NYX CRM profile is active, the Clarity server API
-// (which stores ONE global vault per user) is SKIPPED entirely. Per-profile data
-// lives in localStorage (scoped by profileId) + NYX CRM Firestore (via bridge).
-// This prevents the global server vault from overwriting per-profile data.
+// PROFILE SCOPING: When a profile is active, the vault is read/written through the
+// profile-scoped Clarity server doc (via profileId) instead of the single global
+// vault. localStorage is the fast cache; the profile-scoped server doc is the
+// cross-device backbone that lets every same-account device see the same media.
 async function syncFromServer() {
   // Allow re-sync if first sync returned empty pool (other device may not have pushed yet)
   if (_cloudSynced && imagePool.length > 0) return;
 
-  // ── PROFILE MODE: Seed from global vault if localStorage is empty ──
-  // The Clarity server API stores ONE vault per user account (not per-profile).
-  // When a profile is active, we primarily use localStorage + NYX CRM Firestore bridge.
-  // HOWEVER, if localStorage is empty for this profile (e.g. after migration cleared it),
-  // we seed it ONE TIME from the global Clarity server vault so the profile isn't blank.
+  // ── PROFILE MODE: Sync via the profile-scoped Clarity server doc ──
+  // localStorage is the local cache; the profile-scoped server doc (keyed by
+  // profileId) is the authoritative cross-device source. We pull it, then
+  // UNCONDITIONALLY mirror our merged vault back so other same-account devices
+  // (e.g. employees) always see the same media.
   if (_activeProfileId) {
-    console.log(`[ImagePool] 📌 Profile "${_activeProfileId}" active — pulling from NYX CRM Firestore (source of truth)`);
+    console.log(`[ImagePool] 📌 Profile "${_activeProfileId}" active — syncing via profile-scoped server doc`);
 
-    // ── FIRESTORE-FIRST: NYX CRM Firestore is the authoritative vault source ──
-    // Every sync in profile mode fetches from Firestore. localStorage is just a cache.
-    try {
-      const firestoreResult = await new Promise((resolve) => {
-        const timeout = setTimeout(() => resolve({ success: false, error: 'timeout' }), 15000);
-        try {
-          chrome.runtime.sendMessage(
-            { type: 'NYX_CRM_FETCH_VAULT', activeProfileId: _activeProfileId },
-            (response) => {
-              clearTimeout(timeout);
-              resolve(response || { success: false, error: 'no response' });
-            }
-          );
-        } catch (e) {
-          clearTimeout(timeout);
-          resolve({ success: false, error: e.message });
-        }
-      });
-
-      if (firestoreResult.success) {
-        const fsPool = Array.isArray(firestoreResult.pool) ? firestoreResult.pool : [];
-        const fsVaults = Array.isArray(firestoreResult.vaults) ? firestoreResult.vaults : [];
-        const fsSent = (firestoreResult.sent && typeof firestoreResult.sent === 'object') ? firestoreResult.sent : {};
-
-        console.log(`[ImagePool] 📦 Firestore returned: ${fsPool.length} pool, ${fsVaults.length} vaults, ${Object.keys(fsSent).length} sent tracks`);
-
-        // PER-PROFILE VAULT: Each profile has its own independent vault.
-        // If Firestore is empty and localStorage is empty, this is a NEW profile — start with empty vault.
-        // No auto-seeding from Clarity's global server vault (that would contaminate all profiles with the same data).
-        if (fsPool.length === 0 && imagePool.length === 0) {
-          console.log(`[ImagePool] 📭 Profile "${_activeProfileId}" has empty vault (Firestore + localStorage both empty) — starting fresh`);
-        }
-
-        // Merge: Firestore wins, but add any local-only items (uploaded while offline)
-        const firestoreIds = new Set(fsPool.map(i => i.id));
-        const localOnly = imagePool.filter(i => !firestoreIds.has(i.id));
-
-        if (localOnly.length > 0) {
-          console.log(`[ImagePool] 🔄 ${localOnly.length} local-only items will be merged with Firestore data`);
-          imagePool = [...fsPool, ...localOnly];
-        } else {
-          imagePool = fsPool;
-        }
-
-        vaults = fsVaults;
-        if (!vaults.find(v => v.id === 'default')) {
-          vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
-        }
-
-        // Merge sent maps (union — don't lose local tracking)
-        const mergedSent = { ...fsSent };
-        for (const [subId, ids] of Object.entries(sentImagesMap)) {
-          if (!mergedSent[subId]) {
-            mergedSent[subId] = ids;
-          } else {
-            const merged = new Set([...mergedSent[subId], ...ids]);
-            mergedSent[subId] = [...merged];
-          }
-        }
-        sentImagesMap = mergedSent;
-
-        // Cache to localStorage (fast reload on next switch)
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
-        try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
-        try { localStorage.setItem(SENT_IMAGES_KEY, JSON.stringify(sentImagesMap)); } catch (_) {}
-
-        // Refresh download URLs for Firestore items — signed URLs may be expired
-        if (imagePool.length > 0 && imagePool.some(item => item.storagePath)) {
-          console.log(`[ImagePool] 🔄 Refreshing download URLs for ${imagePool.length} Firestore items...`);
-          await refreshDownloadURLs().catch(err => {
-            console.warn(`[ImagePool] ⚠️ URL refresh failed (images may not display):`, err.message);
-          });
-        }
-
-        console.log(`[ImagePool] ✅ Profile vault loaded from NYX CRM Firestore: ${imagePool.length} items, ${vaults.length} vaults`);
-      } else {
-        console.warn(`[ImagePool] ⚠️ Firestore fetch failed: ${firestoreResult.error} — using localStorage cache`);
-        // PER-PROFILE VAULT: On Firestore failure, use localStorage cache only.
-        // Do NOT fall back to Clarity's global server vault — that would contaminate
-        // this profile with another profile's (or global) data.
-
-        // Ensure default vault exists in cache
-        if (!vaults.find(v => v.id === 'default')) {
-          vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
-          try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
-        }
-      }
-    } catch (fsErr) {
-      console.warn(`[ImagePool] ⚠️ Firestore sync error:`, fsErr.message, '— using localStorage cache');
-      if (!vaults.find(v => v.id === 'default')) {
-        vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
-      }
+    // Ensure a default vault exists in the local cache before syncing
+    if (!vaults.find(v => v.id === 'default')) {
+      vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
+      try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
     }
 
     _cloudSynced = true;
     _lastSyncTime = Date.now();
 
-    // ── BRIDGE-INDEPENDENT SYNC: profile-scoped Clarity server doc ──
-    // This is the CROSS-DEVICE BACKBONE. Same-account devices that do NOT have the
-    // NYX CRM bridge connected (e.g. employees logged into the shared account) can
-    // ONLY read the vault from this profile-scoped server doc — they can't reach the
-    // owner's NYX CRM Firestore. So we must (1) pull anything the bridge didn't
-    // deliver and (2) UNCONDITIONALLY mirror our authoritative vault up to the server
-    // doc so every other device can retrieve it.
+    // ── CROSS-DEVICE BACKBONE: profile-scoped Clarity server doc ──
+    // (1) Pull anything other devices pushed, then (2) UNCONDITIONALLY mirror our
+    // authoritative vault up so every other same-account device can retrieve it.
+    // The PUT is idempotent, so re-pushing identical data is safe. This is the fix
+    // for "media only shows on my laptop, not my employees'".
     try {
       const pulled = await pullProfileServerVault({ force: true });
       if (pulled && pulled.added > 0) {
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
         try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
         console.log(`[ImagePool] ☁️ Profile server pull: +${pulled.added} items, +${pulled.addedVaults} vaults`);
-        // Refresh signed URLs for the newly pulled items
-        if (imagePool.some(item => item.storagePath)) {
-          await refreshDownloadURLs().catch(() => {});
-        }
       }
 
-      // ALWAYS mirror the current vault up to the profile-scoped server doc when we
-      // have items. This is INTENTIONALLY decoupled from the pull result above: if
-      // the pull failed (returned null) or the owner's data only lives in NYX CRM
-      // Firestore, the server doc would otherwise stay empty and employees would see
-      // a blank vault. The PUT is idempotent, so re-pushing identical data is safe.
-      // This is the fix for "media only shows on my laptop, not my employees'".
+      // Refresh signed URLs for cached/pulled items (they expire after ~4h)
+      if (imagePool.some(item => item.storagePath)) {
+        await refreshDownloadURLs().catch(() => {});
+      }
+
       if (imagePool.length > 0) {
         console.log(`[ImagePool] 🔄 Mirroring ${imagePool.length} items to profile server doc (cross-device backbone)...`);
         await pushPoolToServer().catch(() => {});
@@ -891,18 +646,8 @@ async function syncFromServer() {
       }
     } catch (_) {}
 
-
-    // If we had local-only items, push the merged data back to Firestore
-    if (imagePool.length > 0) {
-      notifyNyxCrmVaultChanged();
-    }
-
-    // Start polling Firestore for CRM changes (every 15s)
-    startProfilePolling();
-    // Also start the Clarity server poll — profile mode now uses BOTH the CRM
-    // Firestore bridge and the profile-scoped server doc for cross-device sync.
+    // Start the Clarity server poll (30s) for cross-device changes
     startPolling();
-
 
     console.log(`[ImagePool] ✅ Profile vault ready: ${imagePool.length} items, ${vaults.length} vaults`);
     return;
@@ -1056,9 +801,6 @@ async function syncFromServer() {
       await refreshDownloadURLs();
     }
 
-    // Push vault data to NYX CRM Firestore (initial sync — ensures CRM has latest data)
-    notifyNyxCrmVaultChanged();
-
     // Start live polling for cross-device changes
     startPolling();
   } catch (err) {
@@ -1066,128 +808,6 @@ async function syncFromServer() {
     // Start polling anyway so we can retry later
     if (!_pollInterval) startPolling();
   }
-}
-
-// ============================================================
-// NYX CRM VAULT SYNC — Notify background to push vault data to NYX Firestore
-// Debounced: fires 3s after last change to batch rapid edits
-// ============================================================
-let _nyxVaultSyncTimer = null;
-const NYX_VAULT_SYNC_DEBOUNCE = 3000;
-
-export function notifyNyxCrmVaultChanged() {
-  if (!_cloudSynced) return; // Don't sync partial data
-  clearTimeout(_nyxVaultSyncTimer);
-  _nyxVaultSyncTimer = setTimeout(() => {
-    _sendVaultToBackground();
-  }, NYX_VAULT_SYNC_DEBOUNCE);
-}
-
-/** Force-push vault data to NYX CRM Firestore immediately.
- *  Bypasses _cloudSynced guard and debounce — used when CRM
- *  explicitly requests a sync via FORCE_VAULT_SYNC command.
- *  Falls back to localStorage if imagePool hasn't loaded from cloud yet.
- *  ALWAYS writes to chrome.storage.local so background can find it. */
-export function forceNyxCrmVaultSync() {
-  // If cloud sync completed, use in-memory data (freshest)
-  if (_cloudSynced && imagePool.length > 0) {
-    console.log(`[ImagePool] 📡 Force vault sync: ${imagePool.length} items (from memory)`);
-    _sendVaultToBackground();
-    return;
-  }
-
-  // Fallback: read from localStorage directly (imagePool may not be loaded yet)
-  try {
-    const localPool = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-    const localVaults = JSON.parse(localStorage.getItem(VAULTS_KEY) || '[]');
-    const localSent = JSON.parse(localStorage.getItem(SENT_IMAGES_KEY) || '{}');
-
-    const payload = {
-      pool: localPool.map(item => ({
-        id: item.id,
-        name: item.name,
-        mediaType: item.mediaType || 'image',
-        downloadURL: item.downloadURL || '',
-        storagePath: item.storagePath || '',
-        vaultId: item.vaultId || 'default',
-        createdAt: item.createdAt || 0,
-        usageCount: item.usageCount || 0,
-      })),
-      vaults: localVaults,
-      sent: localSent,
-      activeProfileId: _activeProfileId || null, // Per-profile vault key for Firestore
-    };
-
-    console.log(`[ImagePool] 📡 Force vault sync: ${localPool.length} items (from localStorage, cloudSynced=${_cloudSynced})`);
-
-    // Write to chrome.storage.local so background FORCE_VAULT_SYNC Strategy 1 finds it
-    try {
-      chrome.storage.local.set({ nyxVaultCache: payload }).catch(() => {});
-    } catch (_) {}
-
-    // Also send message to background
-    chrome.runtime.sendMessage({ type: 'NYX_CRM_VAULT_SYNC', ...payload })
-      .catch(() => {});
-  } catch (e) {
-    console.warn('[ImagePool] ⚠️ Force vault sync failed:', e.message);
-  }
-}
-
-/** Internal: send current in-memory vault data to background.
- *  ALSO persists to chrome.storage.local as nyxVaultCache so the
- *  background's FORCE_VAULT_SYNC Strategy 1 always has fresh data
- *  even if this sendMessage doesn't reach the service worker.
- *  Includes activeProfileId so bridge writes to the correct per-profile Firestore path.
- *
- *  PROACTIVE URL REFRESH: If signed URLs are likely stale (>3h since last refresh),
- *  refreshes them first before sending to background. This ensures the CRM always
- *  receives fresh download URLs in Firestore, preventing the "expired" state. */
-function _sendVaultToBackground() {
-  // Check if URLs might be stale — signed URLs expire after ~4h
-  const URL_STALE_THRESHOLD_MS = 3 * 60 * 60 * 1000; // 3 hours
-  const urlsMayBeStale = imagePool.some(item => item.storagePath) &&
-    (Date.now() - _lastUrlRefreshTime > URL_STALE_THRESHOLD_MS);
-
-  if (urlsMayBeStale) {
-    console.log(`[ImagePool] 🔄 URLs may be stale (last refresh: ${_lastUrlRefreshTime ? Math.round((Date.now() - _lastUrlRefreshTime) / 60000) + 'min ago' : 'never'}) — refreshing before Firestore sync...`);
-    refreshDownloadURLs()
-      .then(() => _doSendVaultToBackground())
-      .catch(() => _doSendVaultToBackground()); // Send anyway with stale URLs as fallback
-    return;
-  }
-
-  _doSendVaultToBackground();
-}
-
-/** Actually send the vault payload to background (called by _sendVaultToBackground) */
-function _doSendVaultToBackground() {
-  const payload = {
-    pool: imagePool.map(item => ({
-      id: item.id,
-      name: item.name,
-      mediaType: item.mediaType || 'image',
-      downloadURL: item.downloadURL || '',
-      storagePath: item.storagePath || '',
-      vaultId: item.vaultId || 'default',
-      createdAt: item.createdAt || 0,
-      usageCount: item.usageCount || 0,
-    })),
-    vaults: vaults,
-    sent: sentImagesMap,
-    activeProfileId: _activeProfileId || null, // Per-profile vault key for Firestore
-  };
-
-  // Persist to chrome.storage.local — shared with background, survives SW suspension
-  try {
-    chrome.storage.local.set({ nyxVaultCache: payload }).catch(() => {});
-  } catch (_) {}
-
-  // Also send message to background (may or may not be awake)
-  try {
-    chrome.runtime.sendMessage({ type: 'NYX_CRM_VAULT_SYNC', ...payload })
-      .catch(() => {}); // Background not available — cache is the safety net
-    console.log(`[ImagePool] 📡 Vault cache written + message sent (${imagePool.length} items, profile=${_activeProfileId || 'global'})`);
-  } catch (_) {}
 }
 
 // Supported media types
@@ -1366,31 +986,9 @@ function saveSentImagesMap() {
   try {
     localStorage.setItem(SENT_IMAGES_KEY, JSON.stringify(sentImagesMap));
     scheduleSentSync();
-    // Immediate lightweight sent-only sync to NYX CRM Firestore
-    // (bypasses the 3s debounce of notifyNyxCrmVaultChanged — only writes sent + syncedAt)
-    immediateNyxSentSync();
-    notifyNyxCrmVaultChanged();
   } catch (e) {
     console.error('[ImagePool] Error saving sent images map:', e);
   }
-}
-
-// ============================================================
-// IMMEDIATE NYX CRM SENT SYNC — No debounce, sent-only Firestore write
-// Sends just the sentImagesMap to background → syncSentToFirestore()
-// which only patches `sent` + `syncedAt` fields (no pool/vaults rewrite).
-// This makes mark/unmark sent appear in the CRM within ~1s.
-// ============================================================
-function immediateNyxSentSync() {
-  if (!_cloudSynced) return; // Don't sync partial data
-  try {
-    chrome.runtime.sendMessage({
-      type: 'NYX_CRM_SENT_SYNC',
-      sent: sentImagesMap,
-      activeProfileId: _activeProfileId || null, // Per-profile vault key for Firestore
-    }).catch(() => {}); // Background not available — full vault sync is the safety net
-    console.log(`[ImagePool] ⚡ Immediate sent sync fired (${Object.keys(sentImagesMap).length} subscribers, profile=${_activeProfileId || 'global'})`);
-  } catch (_) {}
 }
 
 // Save pool to localStorage + schedule cloud sync
@@ -1399,7 +997,6 @@ function savePool() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool));
     updateStats();
     schedulePoolSync();
-    notifyNyxCrmVaultChanged();
   } catch (e) {
     console.error('[ImagePool] Error saving pool:', e);
     throw e; // Re-throw so callers can detect save failures (e.g. QuotaExceededError)
@@ -2015,7 +1612,7 @@ function loadVaults() {
 }
 
 function saveVaults() {
-  try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); scheduleVaultsSync(); notifyNyxCrmVaultChanged(); } catch (_) {}
+  try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); scheduleVaultsSync(); } catch (_) {}
 }
 
 export function getVaults() { ensureLoaded(); return [...vaults]; }

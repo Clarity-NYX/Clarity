@@ -747,10 +747,9 @@ export const forceRefreshSubscriberStats = async () => {
       // totalSpent CAN be refreshed — it's a cumulative value from the page
       if (response.stats.totalSpent) {
         updatedNotes.totalSpent = response.stats.totalSpent;
-        // Sync spending to NYX CRM
-        chrome.runtime.sendMessage({ type: 'NYX_CRM_SYNC_SPENDING', subscriberId: currentSubscriberId, totalSpent: response.stats.totalSpent }).catch(() => {});
       }
       showNotification('Subscriber info refreshed!');
+
     } else {
       showNotification('Could not scrape stats from profile page');
     }
@@ -830,10 +829,9 @@ export const fetchSubscriberStats = async () => {
       }
       if (response.stats.totalSpent) {
         updatedNotes.totalSpent = response.stats.totalSpent;
-        // Sync spending to NYX CRM
-        chrome.runtime.sendMessage({ type: 'NYX_CRM_SYNC_SPENDING', subscriberId: currentSubscriberId, totalSpent: response.stats.totalSpent }).catch(() => {});
       }
       showNotification('Subscriber stats loaded!');
+
     } else {
       console.log('Could not scrape stats - showing Day 1 for new subscriber');
     }

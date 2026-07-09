@@ -30,7 +30,7 @@ import { triggerCloudSync as triggerVaultCloudSync } from './modules/imagePool.j
 import { initBroadcast, openBroadcastModal, closeBroadcastModal } from './modules/broadcast.js';
 import { initLearning, setupLearningListeners } from './modules/learning.js';
 import { initSubscriberGroups, renderGroupPicker } from './modules/subscriberGroups.js';
-import { initNyxCrm } from './modules/nyxCrm.js';
+
 
 // ============================================================
 // TAB SWITCHING
@@ -260,15 +260,8 @@ const init = async () => {
       } catch (e) {
         console.error('Learning init error:', e);
       }
-      
-      // Initialize NYX CRM connection UI (settings panel section)
-      console.log('[Sidepanel] 🔗 Initializing NYX CRM connection...');
-      try {
-        initNyxCrm();
-      } catch (e) {
-        console.error('NYX CRM init error:', e);
-      }
     } else {
+
       showAuthPanel();
       setupAuthListeners();
     }

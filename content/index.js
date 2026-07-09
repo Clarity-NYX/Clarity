@@ -776,10 +776,10 @@ import {
       }
 
       // Handle FETCH_VIDEO_URLS — uses OF API to get actual video CDN URLs for a chat
-      // Called by nyx-crm-bridge after syncing messages that have mediaType=video but no mediaUrl
       if (message.type === 'FETCH_VIDEO_URLS') {
         const chatId = message.chatId;
         console.log(`[Clarity] 🎬 FETCH_VIDEO_URLS: Fetching video URLs for chat ${chatId}...`);
+
         fetchVideoUrlsForChat(chatId)
           .then(urls => {
             const count = Object.keys(urls).length;

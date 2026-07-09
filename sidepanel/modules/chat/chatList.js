@@ -47,9 +47,9 @@ const getSpendingTier = (amount) => {
 let spendingDataCache = new Map();
 
 /**
- * Load spending data for all chats from stored notes,
- * then batch-sync to NYX CRM Firestore so the CRM dashboard shows spending badges.
+ * Load spending data for all chats from stored notes.
  */
+
 const loadSpendingData = async () => {
   const profile = Store.get('currentProfile');
   if (!profile?.id) return;
@@ -72,30 +72,8 @@ const loadSpendingData = async () => {
         }
       }
       console.log(`[ChatList] Loaded spending data for ${spendingDataCache.size} subscribers`);
-
-      // ── Batch-sync spending to NYX CRM Firestore ──
-      // The CRM dashboard reads totalSpent from Firestore, but it was never
-      // being written there during normal chat list sync. Push it now.
-      if (spendingDataCache.size > 0) {
-        let synced = 0;
-        for (const [rawId, data] of spendingDataCache) {
-          if (data.amount > 0) {
-            try {
-              await chrome.runtime.sendMessage({
-                type: 'NYX_CRM_SYNC_SPENDING',
-                data: { subscriberId: rawId, totalSpent: data.totalSpent },
-              });
-              synced++;
-            } catch (e) {
-              // Silent — CRM bridge may not be connected, that's fine
-            }
-          }
-        }
-        if (synced > 0) {
-          console.log(`[ChatList] ✅ Synced spending to NYX CRM for ${synced} subscribers`);
-        }
-      }
     }
+
   } catch (e) {
     console.warn('[ChatList] Could not load spending data:', e.message);
   }
@@ -243,29 +221,8 @@ export const loadChatList = async () => {
     if (response.success && response.chats && response.chats.length > 0) {
       renderChatList(response.chats);
       if (chatListCount) chatListCount.textContent = `${response.chats.length} chats`;
-
-      // ── NYX CRM: Sync chat list on the PULL path ──
-      // The push path (OF_CHAT_LIST_UPDATED via MutationObserver) only fires on DOM changes.
-      // This pull path fires every time the sidepanel opens/refreshes the chat list,
-      // ensuring Firestore timestamps + spending stay fresh even if MutationObserver is silent.
-      try {
-        const enrichedChats = response.chats.map(chat => {
-          const rawId = chat.rawId || chat.id?.replace(/^of:/, '') || '';
-          const spendData = spendingDataCache.get(rawId);
-          return {
-            ...chat,
-            totalSpent: spendData?.totalSpent || null,
-          };
-        });
-        console.log(`[ChatList] 📋 Sending ${enrichedChats.length} enriched chats to NYX CRM...`);
-        chrome.runtime.sendMessage({
-          type: 'NYX_CRM_SYNC_CHAT_LIST',
-          data: { chatList: enrichedChats },
-        }).catch(() => {});
-      } catch (e) {
-        // Silent — CRM sync failure should never break the sidepanel
-      }
     } else {
+
       renderChatListEmpty('No chats visible on page');
       if (chatListCount) chatListCount.textContent = '0 chats';
     }

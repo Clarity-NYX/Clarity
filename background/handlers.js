@@ -5,8 +5,7 @@
 import { API } from './api.js';
 import { AutoChatState, startAutoChatMonitoring, stopAutoChatMonitoring, loadBlockedUsers, blockUser, handleUserBlocked, onMessageSent, handleNewUnreads, handleChatListUpdate, notifyStateChange, updateChatScriptProgress, handleUnreadsAtTop } from './autochat.js';
 import { handleOFAutoChatMessage, handleChatListPush, retryChat, setAlarmMuted, OFAutoChatState, handleGenerationResult } from './autochat-onlyfans.js';
-import { bridgeChatSync, bridgeNewMessages, bridgeChatListUpdate } from './nyx-bridge.js';
-import { syncChatList, syncMessages, syncSpending, syncFanProfile, setTaskDays, connectNyxCrm, verifyNyxMfa, fetchNyxModels, selectNyxModel, disconnectNyxCrm, getNyxBridgeStatus, nukeChat, queueCleanup, syncVaultToFirestore, syncSentToFirestore, fetchVaultFromFirestore } from './nyx-crm-bridge.js';
+
 
 // ============================================================
 // INPUT VALIDATION HELPERS
@@ -193,30 +192,15 @@ export const handlers = {
   async SAVE_CHAT(data) {
     const { profileId, subscriberId, ...chatData } = data;
     const result = await API.saveChat(profileId, subscriberId, chatData);
-
-    // NYX Bridge: Send full chat sync (fire-and-forget)
-    bridgeChatSync(profileId, subscriberId, chatData.subscriberName, chatData.messages).catch(() => {});
-
-    // NYX CRM Bridge: REMOVED — sidepanel subscriberId can be stale during chat switches,
-    // causing cross-fan contamination. The ONLY reliable sync path is via content script
-    // → index.js handleCrmChatMessage() which extracts fanId from sender.tab.url.
-
     return { success: true, messageCount: result.messageCount, message: result.message };
   },
 
   async SYNC_CHAT(data) {
     const { profileId, subscriberId, newMessages, subscriberName } = data;
     const result = await API.syncChat(profileId, subscriberId, { newMessages, subscriberName });
-
-    // NYX Bridge: Send incremental messages (fire-and-forget)
-    bridgeNewMessages(profileId, subscriberId, subscriberName, newMessages).catch(() => {});
-
-    // NYX CRM Bridge: REMOVED — sidepanel subscriberId can be stale during chat switches,
-    // causing cross-fan contamination. The ONLY reliable sync path is via content script
-    // → index.js handleCrmChatMessage() which extracts fanId from sender.tab.url.
-
     return { success: true, added: result.added, totalMessages: result.totalMessages, message: result.message };
   },
+
 
   async GET_CHAT_NOTES(data) {
     const result = await API.getChatNotes(data.profileId, data.subscriberId);
@@ -225,12 +209,9 @@ export const handlers = {
 
   async SAVE_CHAT_NOTES(data) {
     const result = await API.saveChatNotes(data.profileId, data.subscriberId, data.notes);
-    // Sync totalSpent to NYX CRM if present
-    if (data.notes?.totalSpent && data.subscriberId) {
-      syncSpending(data.subscriberId, data.notes.totalSpent).catch(() => {});
-    }
     return { success: true, message: result.message };
   },
+
 
   async GET_CHATS(data) {
     const result = await API.getChats(data.profileId);
@@ -701,15 +682,10 @@ export const handlers = {
       data: data
     }).catch(() => {}); // Ignore if sidepanel not open
 
-    // NYX Bridge: Send chat list summaries to NYX dashboard (fire-and-forget)
-    bridgeChatListUpdate(data).catch(() => {});
-
-    // NYX CRM Bridge: Sync chat list directly to Firestore (fire-and-forget)
-    syncChatList(data).catch(() => {});
-    
     sendResponse({ success: true });
     return true;
   },
+
 
   // Manual retry for failed chat
   OF_AUTOCHAT_RETRY(data, sendResponse) {
@@ -754,253 +730,6 @@ export const handlers = {
     notifyStateChange();
     sendResponse({ success: true });
     return true;
-  },
-
-  // ============================================================
-  // NYX CRM CONNECTION HANDLERS
-  // ============================================================
-
-  async NYX_CRM_CONNECT(data, sendResponse) {
-    try {
-      if (!data.email || !data.password) {
-        sendResponse({ success: false, error: 'Email and password required' });
-        return true;
-      }
-      const result = await connectNyxCrm(data.email, data.password);
-      if (result.mfaRequired) {
-        // 2FA is enabled — return challenge data so UI can prompt for TOTP code
-        sendResponse({
-          success: true,
-          mfaRequired: true,
-          mfaPendingCredential: result.mfaPendingCredential,
-          mfaEnrollmentId: result.mfaEnrollmentId,
-          mfaDisplayName: result.mfaDisplayName,
-        });
-      } else {
-        sendResponse({ success: true, mfaRequired: false });
-      }
-    } catch (error) {
-      console.error('[Handler] NYX_CRM_CONNECT error:', error);
-      sendResponse({ success: false, error: error.message });
-    }
-    return true;
-  },
-
-  async NYX_CRM_VERIFY_MFA(data, sendResponse) {
-    try {
-      if (!data.mfaPendingCredential || !data.mfaEnrollmentId || !data.totpCode) {
-        sendResponse({ success: false, error: 'MFA credential, enrollment ID, and TOTP code required' });
-        return true;
-      }
-      await verifyNyxMfa(data.mfaPendingCredential, data.mfaEnrollmentId, data.totpCode);
-      sendResponse({ success: true });
-    } catch (error) {
-      console.error('[Handler] NYX_CRM_VERIFY_MFA error:', error);
-      sendResponse({ success: false, error: error.message });
-    }
-    return true;
-  },
-
-  async NYX_CRM_FETCH_MODELS(_, sendResponse) {
-    try {
-      const models = await fetchNyxModels();
-      sendResponse({ success: true, models });
-    } catch (error) {
-      console.error('[Handler] NYX_CRM_FETCH_MODELS error:', error);
-      sendResponse({ success: false, error: error.message });
-    }
-    return true;
-  },
-
-  async NYX_CRM_SELECT_MODEL(data, sendResponse) {
-    try {
-      if (!data.modelId) {
-        sendResponse({ success: false, error: 'Model ID required' });
-        return true;
-      }
-      await selectNyxModel(data.modelId, data.profileId || null);
-      sendResponse({ success: true });
-    } catch (error) {
-      console.error('[Handler] NYX_CRM_SELECT_MODEL error:', error);
-      sendResponse({ success: false, error: error.message });
-    }
-    return true;
-  },
-
-  async NYX_CRM_DISCONNECT(_, sendResponse) {
-    try {
-      await disconnectNyxCrm();
-      sendResponse({ success: true });
-    } catch (error) {
-      console.error('[Handler] NYX_CRM_DISCONNECT error:', error);
-      sendResponse({ success: false, error: error.message });
-    }
-    return true;
-  },
-
-  NYX_CRM_GET_STATUS(_, sendResponse) {
-    try {
-      const status = getNyxBridgeStatus();
-      sendResponse({ success: true, ...status });
-    } catch (error) {
-      sendResponse({ success: false, error: error.message });
-    }
-    return true;
-  },
-
-  // Sync chat list from sidepanel pull-path to NYX CRM Firestore
-  async NYX_CRM_SYNC_CHAT_LIST(data, sendResponse) {
-    console.log(`[Handler] 📋 NYX_CRM_SYNC_CHAT_LIST received: ${data.chatList?.length || 0} chats`);
-    if (data.chatList?.length) {
-      syncChatList(data.chatList).catch((e) => {
-        console.warn('[Handler] syncChatList error:', e.message);
-      });
-    }
-    sendResponse({ success: true });
-    return true;
-  },
-
-  // Real-time message sync — lightweight path for individual new messages
-  // Fired by sidepanel's messageListener when NEW_MESSAGE or CHAT_MESSAGES arrives
-  async NYX_CRM_SYNC_MESSAGE(data, sendResponse) {
-    console.error(`[Handler] 🔵 NYX_CRM_SYNC_MESSAGE received: sub=${data.subscriberId}, msgs=${data.messages?.length || 0}, name=${data.subscriberName || 'Fan'}`);
-    if (data.subscriberId && data.messages?.length) {
-      // MUST await — fire-and-forget lets Chrome MV3 kill the SW before write completes
-      try {
-        await syncMessages(null, data.subscriberId, data.subscriberName || 'Fan', data.messages);
-        console.error(`[Handler] 🔵 NYX_CRM_SYNC_MESSAGE completed for sub=${data.subscriberId}`);
-      } catch (e) {
-        console.error('[Handler] ❌ NYX_CRM_SYNC_MESSAGE error:', e.message);
-      }
-    } else {
-      console.error(`[Handler] 🔵 NYX_CRM_SYNC_MESSAGE SKIPPED — no subscriberId or empty messages`);
-    }
-    sendResponse({ success: true });
-    return true;
-  },
-
-  // Sync spending amount to NYX CRM Firestore
-  async NYX_CRM_SYNC_SPENDING(data, sendResponse) {
-    if (!data.subscriberId || !data.totalSpent) {
-      sendResponse({ success: false, error: 'Subscriber ID and totalSpent required' });
-      return true;
-    }
-    syncSpending(data.subscriberId, data.totalSpent).catch(() => {});
-    sendResponse({ success: true });
-    return true;
-  },
-
-  // Sync full fan profile stats (subscribedSince, subscribedDays, totalSpent) to NYX CRM Firestore
-  // Fired after CRM_REFRESH_STATS completes in the sidepanel
-  async NYX_CRM_SYNC_FAN_PROFILE(data, sendResponse) {
-    const { subscriberId, stats } = data || {};
-    if (!subscriberId || !stats) {
-      sendResponse({ success: false, error: 'Subscriber ID and stats required' });
-      return true;
-    }
-    console.log(`[Handler] 📊 NYX_CRM_SYNC_FAN_PROFILE for ${subscriberId}:`, stats);
-    syncFanProfile(subscriberId, stats).catch((e) => {
-      console.warn('[Handler] syncFanProfile error:', e.message);
-    });
-    sendResponse({ success: true });
-    return true;
-  },
-
-  // ============================================================
-  // NYX CRM VAULT SYNC — Push vault data to NYX Firestore
-  // ============================================================
-  async NYX_CRM_VAULT_SYNC(data, sendResponse) {
-    console.log(`[Handler] 📦 NYX_CRM_VAULT_SYNC received: ${data.pool?.length || 0} items, ${data.vaults?.length || 0} vaults, profile=${data.activeProfileId || 'default'}`);
-    // Cache in chrome.storage so FORCE_VAULT_SYNC can re-push without sidepanel
-    try {
-      await chrome.storage.local.set({
-        nyxVaultCache: { pool: data.pool || [], vaults: data.vaults || [], sent: data.sent || {}, activeProfileId: data.activeProfileId || null }
-      });
-    } catch (_) {}
-    syncVaultToFirestore(data.pool, data.vaults, data.sent, data.activeProfileId || null).catch((e) => {
-      console.warn('[Handler] syncVaultToFirestore error:', e.message);
-    });
-    sendResponse({ success: true });
-    return true;
-  },
-
-  // ============================================================
-  // NYX CRM SENT-ONLY SYNC — Lightweight sent map push to Firestore
-  // Fired by imagePool.js immediateNyxSentSync() on every mark/unmark
-  // Only updates the `sent` + `syncedAt` fields (no pool/vaults rewrite)
-  // ============================================================
-  async NYX_CRM_SENT_SYNC(data, sendResponse) {
-    console.log(`[Handler] 📦 NYX_CRM_SENT_SYNC received: ${Object.keys(data.sent || {}).length} subscribers, profile=${data.activeProfileId || 'default'}`);
-    if (data.sent && typeof data.sent === 'object') {
-      syncSentToFirestore(data.sent, data.activeProfileId || null).catch((e) => {
-        console.warn('[Handler] syncSentToFirestore error:', e.message);
-      });
-    }
-    sendResponse({ success: true });
-    return true;
-  },
-
-  // ============================================================
-  // NYX CRM FETCH VAULT — Pull per-profile vault data from Firestore
-  // Used when profile mode is active and localStorage is empty
-  // ============================================================
-  async NYX_CRM_FETCH_VAULT(data, sendResponse) {
-    try {
-      const result = await fetchVaultFromFirestore(data?.activeProfileId || null);
-      sendResponse(result);
-    } catch (error) {
-      sendResponse({ success: false, error: error.message });
-    }
-    return true;
-  },
-
-  // ============================================================
-  // NUKE CHAT — Delete all local + Firebase data for a subscriber
-  // ============================================================
-  async NUKE_CHAT(data, sendResponse) {
-    const subscriberId = data?.subscriberId;
-    if (!subscriberId) {
-      sendResponse({ success: false, error: 'Subscriber ID required' });
-      return true;
-    }
-
-    console.log(`[Handler] 🗑️ NUKE_CHAT received for subscriber ${subscriberId}`);
-
-    try {
-      // Delete Firebase/CRM data via the bridge
-      const result = await nukeChat(subscriberId);
-      console.log(`[Handler] 🗑️ NUKE_CHAT result:`, result);
-      sendResponse(result);
-    } catch (error) {
-      console.error('[Handler] NUKE_CHAT error:', error);
-      sendResponse({ success: false, error: error.message });
-    }
-    return true;
-  },
-
-  // ============================================================
-  // QUEUE CLEANUP — Queue a CLEANUP command via the bridge
-  // Same as the CRM's handleCleanSync: writes to Firestore queue,
-  // bridge's pollCommands() picks it up and runs executeCleanup()
-  // ============================================================
-  async QUEUE_CLEANUP(data, sendResponse) {
-    const subscriberId = data?.subscriberId;
-    const subscriberName = data?.subscriberName || 'Fan';
-    if (!subscriberId) {
-      sendResponse({ success: false, error: 'Subscriber ID required' });
-      return true;
-    }
-
-    console.log(`[Handler] 🧹 QUEUE_CLEANUP received for subscriber ${subscriberId} (${subscriberName})`);
-
-    try {
-      const result = await queueCleanup(subscriberId, subscriberName);
-      console.log(`[Handler] 🧹 QUEUE_CLEANUP result:`, result);
-      sendResponse(result);
-    } catch (error) {
-      console.error('[Handler] QUEUE_CLEANUP error:', error);
-      sendResponse({ success: false, error: error.message });
-    }
-    return true;
   }
 };
+
