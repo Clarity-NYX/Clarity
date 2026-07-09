@@ -2,7 +2,10 @@
 node_modules/
 
 # Build outputs
-dist/
+# NOTE: dist/ is intentionally committed so the extension can be loaded directly
+# from a GitHub download (Load unpacked) without requiring a local `npm run build`.
+# The manifest's content_scripts reference dist/content.bundle.js.
+# dist/
 
 # macOS
 .DS_Store
