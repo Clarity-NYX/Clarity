@@ -237,14 +237,14 @@ async function pushSentToServer() {
   }
 }
 
-// Pull the profile-scoped vault from the Clarity server and MERGE any items not
-// already present locally: uploads reach the profile-scoped server doc so other
-// same-account devices pick them up here.
+// Pull the shared vault from the server and make it the SINGLE SOURCE OF TRUTH:
+// local pool/vaults are REPLACED with the server copy. This is what lets a deletion
+// on one device propagate to everyone — the old additive merge could only ADD items,
+// so folders another person deleted kept reappearing on stale devices.
 //
 // Version-gated: fetches the lightweight /version endpoint first and skips the full
-// pull when nothing changed (unless force=true). Non-destructive — only ADDS items,
-// never removes (deletions are handled by the Firestore poll).
-// Returns { added, addedVaults, serverIds } or null on failure.
+// pull when nothing changed (unless force=true).
+// Returns { changed, poolCount, vaultCount } or null on failure.
 async function pullProfileServerVault({ force = false } = {}) {
   if (!_activeProfileId) return null;
   try {
@@ -265,7 +265,7 @@ async function pullProfileServerVault({ force = false } = {}) {
         versions.pool <= _lastKnownVersions.pool &&
         versions.vaults <= _lastKnownVersions.vaults &&
         versions.sent <= _lastKnownVersions.sent) {
-      return { added: 0, addedVaults: 0, serverIds: null, unchanged: true };
+      return { changed: false, unchanged: true };
     }
 
     const data = await apiRequest(vaultQuery('/storage/vault'));
@@ -274,22 +274,22 @@ async function pullProfileServerVault({ force = false } = {}) {
     const serverPool = Array.isArray(data.pool) ? data.pool : [];
     const serverVaults = Array.isArray(data.vaults) ? data.vaults : [];
 
-    const localIds = new Set(imagePool.map(i => i.id));
-    const newItems = serverPool.filter(i => i && i.id && !localIds.has(i.id));
-    if (newItems.length > 0) imagePool = [...imagePool, ...newItems];
-
-    const localVaultIds = new Set(vaults.map(v => v.id));
-    const newVaults = serverVaults.filter(v => v && v.id && !localVaultIds.has(v.id));
-    if (newVaults.length > 0) vaults = [...vaults, ...newVaults];
+    // SERVER WINS: replace local state entirely so additions AND deletions sync.
+    imagePool = serverPool;
+    vaults = serverVaults;
+    if (!vaults.find(v => v.id === 'default')) {
+      vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
+    }
 
     if (versions) _lastKnownVersions = versions;
 
-    return { added: newItems.length, addedVaults: newVaults.length, serverIds: new Set(serverPool.map(i => i.id)) };
+    return { changed: true, poolCount: serverPool.length, vaultCount: serverVaults.length };
   } catch (err) {
     console.debug('[ImagePool] Profile server pull failed:', err.message);
     return null;
   }
 }
+
 
 
 // Refresh download URLs for pool items with storagePath (signed URLs expire after 4h)
@@ -453,14 +453,15 @@ export function handleMediaError(el, storagePath, itemId) {
 async function pollForChanges() {
   if (_isSyncing) return;
 
-  // PROFILE MODE: poll the profile-scoped Clarity server doc for items other
-  // same-account devices (e.g. employees) pushed to the server.
+  // PROFILE MODE: poll the shared server vault. pullProfileServerVault REPLACES local
+  // state with the server copy when it changed, so this picks up other people's
+  // additions AND deletions (folders someone removed disappear here too).
   if (_activeProfileId) {
     if (!_cloudSynced || document.hidden) return;
     try {
       _isSyncing = true;
       const pulled = await pullProfileServerVault({ force: false });
-      if (pulled && pulled.added > 0) {
+      if (pulled && pulled.changed) {
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
         try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
         if (imagePool.some(item => item.storagePath)) {
@@ -468,7 +469,7 @@ async function pollForChanges() {
         }
         renderPool();
         window.dispatchEvent(new CustomEvent('vault-pool-updated'));
-        console.log(`[ImagePool] 🔄 Profile server poll: +${pulled.added} items, +${pulled.addedVaults} vaults`);
+        console.log(`[ImagePool] 🔄 Shared vault poll: now ${pulled.poolCount} items, ${pulled.vaultCount} vaults`);
       }
     } catch (err) {
       console.debug('[ImagePool] Profile server poll failed:', err.message);
@@ -477,6 +478,7 @@ async function pollForChanges() {
     }
     return;
   }
+
 
   // If initial sync hasn't completed yet, retry it instead of polling
 
@@ -626,15 +628,32 @@ async function syncFromServer() {
   // Allow re-sync if first sync returned empty pool (other device may not have pushed yet)
   if (_cloudSynced && imagePool.length > 0) return;
 
-  // ── PROFILE MODE: Sync via the profile-scoped Clarity server doc ──
-  // localStorage is the local cache; the profile-scoped server doc (keyed by
-  // profileId) is the authoritative cross-device source. We pull it, then
-  // UNCONDITIONALLY mirror our merged vault back so other same-account devices
-  // (e.g. employees) always see the same media.
+  // ── PROFILE MODE: the server doc is the SINGLE SHARED VAULT ──
+  // Everyone on the account sees exactly what's on the server. We pull the server
+  // copy and REPLACE local state (so additions AND deletions propagate). We only
+  // ever push local data UP in one case: the very first seed, when the server has
+  // no vault yet but this device has cached items. After that, the server is
+  // authoritative and local edits reach it through the debounced save on each
+  // add/delete — never through an unconditional mirror-up (which used to resurrect
+  // folders other people had deleted).
   if (_activeProfileId) {
-    console.log(`[ImagePool] 📌 Profile "${_activeProfileId}" active — syncing via profile-scoped server doc`);
+    console.log(`[ImagePool] 📌 Profile "${_activeProfileId}" active — syncing shared server vault`);
 
-    // Ensure a default vault exists in the local cache before syncing
+    const localHadItems = imagePool.length > 0;
+    let serverIsEmpty = true;
+
+    try {
+      const pulled = await pullProfileServerVault({ force: true });
+      if (pulled && pulled.changed) {
+        serverIsEmpty = (pulled.poolCount === 0 && pulled.vaultCount === 0);
+        // Server won — persist the authoritative copy to the local cache
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
+        try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
+        console.log(`[ImagePool] ☁️ Shared vault loaded: ${pulled.poolCount} items, ${pulled.vaultCount} vaults`);
+      }
+    } catch (_) {}
+
+    // Ensure a default vault always exists locally
     if (!vaults.find(v => v.id === 'default')) {
       vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
       try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
@@ -643,37 +662,26 @@ async function syncFromServer() {
     _cloudSynced = true;
     _lastSyncTime = Date.now();
 
-    // ── CROSS-DEVICE BACKBONE: profile-scoped Clarity server doc ──
-    // (1) Pull anything other devices pushed, then (2) UNCONDITIONALLY mirror our
-    // authoritative vault up so every other same-account device can retrieve it.
-    // The PUT is idempotent, so re-pushing identical data is safe. This is the fix
-    // for "media only shows on my laptop, not my employees'".
-    try {
-      const pulled = await pullProfileServerVault({ force: true });
-      if (pulled && pulled.added > 0) {
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
-        try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
-        console.log(`[ImagePool] ☁️ Profile server pull: +${pulled.added} items, +${pulled.addedVaults} vaults`);
-      }
+    // FIRST-SEED ONLY: server has nothing but we had a local cache → push it up once
+    // so the shared vault gets populated. Never happens again once the server has data.
+    if (serverIsEmpty && localHadItems) {
+      console.log(`[ImagePool] 🌱 Seeding empty shared vault with ${imagePool.length} local items...`);
+      await pushPoolToServer().catch(() => {});
+      await pushVaultsToServer().catch(() => {});
+    }
 
-      // Refresh signed URLs for cached/pulled items (they expire after ~4h)
-      if (imagePool.some(item => item.storagePath)) {
-        await refreshDownloadURLs().catch(() => {});
-      }
+    // Refresh signed URLs so thumbnails display (URLs expire after ~4h/7d)
+    if (imagePool.some(item => item.storagePath)) {
+      await refreshDownloadURLs().catch(() => {});
+    }
 
-      if (imagePool.length > 0) {
-        console.log(`[ImagePool] 🔄 Mirroring ${imagePool.length} items to profile server doc (cross-device backbone)...`);
-        await pushPoolToServer().catch(() => {});
-        await pushVaultsToServer().catch(() => {});
-      }
-    } catch (_) {}
-
-    // Start the Clarity server poll (30s) for cross-device changes
+    // Start the shared-vault poll (30s) for cross-device changes
     startPolling();
 
-    console.log(`[ImagePool] ✅ Profile vault ready: ${imagePool.length} items, ${vaults.length} vaults`);
+    console.log(`[ImagePool] ✅ Shared vault ready: ${imagePool.length} items, ${vaults.length} vaults`);
     return;
   }
+
 
   // ── GLOBAL MODE: Full Clarity server sync ──
   // Capture generation counter — if a profile switch happens during this async fetch,
