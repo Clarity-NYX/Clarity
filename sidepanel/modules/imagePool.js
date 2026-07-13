@@ -61,7 +61,7 @@ const MAX_PUSH_RETRIES = 5;
 const _pushRetryCounts = { pool: 0, vaults: 0, sent: 0 };
 
 function hasPendingLocalChanges() {
-  return _poolDirty || _vaultsDirty || _sentDirty || _pushInFlight;
+  return _poolDirty || _vaultsDirty || _sentDirty || _pushInFlight || _opsInFlight > 0;
 }
 
 // Merge helpers — LOCAL WINS for items it has (rename/move edits stick), server-only
@@ -284,6 +284,135 @@ function retryPush(kind, retryFn) {
   }
   _pushRetryCounts[kind]++;
   setTimeout(retryFn, SYNC_DEBOUNCE_MS * (_pushRetryCounts[kind] + 1));
+}
+
+// ============================================================
+// GRANULAR SERVER OPS — atomic per-item / per-folder writes
+// ============================================================
+// The full-array PUTs below replace the whole doc server-side, so with 3 users
+// on one account concurrent edits clobber each other even with merge-before-push
+// (read-modify-write races). Each granular op instead mutates ONE folder/item in
+// a Firestore transaction on the server — concurrent edits from different users
+// interleave safely. After the ops settle we pull the authoritative server copy
+// so every device converges to the exact same folders and media.
+let _opsInFlight = 0;
+let _pullAgain = false;
+
+async function pullAuthoritative() {
+  if (_opsInFlight > 0) { _pullAgain = true; return; }
+  try {
+    const data = await apiRequest(vaultQuery('/storage/vault'));
+    if (!data || !data.success) return;
+    if (_opsInFlight > 0) { _pullAgain = true; return; }
+
+    const serverPool = Array.isArray(data.pool) ? data.pool : imagePool;
+    const serverVaults = Array.isArray(data.vaults) ? data.vaults : vaults;
+
+    // Server is the source of truth. Only merge local state back in when a
+    // legacy fallback push is still pending (dirty) so that edit isn't dropped.
+    imagePool = _poolDirty ? mergeLocalIntoServerPool(serverPool, imagePool) : serverPool;
+    vaults = _vaultsDirty ? mergeLocalIntoServerVaults(serverVaults, vaults) : serverVaults;
+    if (!vaults.find(v => v.id === 'default')) {
+      vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
+    }
+    if (!_sentDirty && data.sent && typeof data.sent === 'object') {
+      sentImagesMap = data.sent;
+    }
+    if (!_poolDirty) _deletedPoolIds.clear();
+    if (!_vaultsDirty) _deletedVaultIds.clear();
+
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
+    try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
+    try { localStorage.setItem(SENT_IMAGES_KEY, JSON.stringify(sentImagesMap)); } catch (_) {}
+
+    await refreshKnownVersions();
+    renderPool();
+    window.dispatchEvent(new CustomEvent('vault-pool-updated'));
+  } catch (err) {
+    console.debug('[ImagePool] Authoritative pull failed:', err.message);
+  } finally {
+    if (_pullAgain && _opsInFlight === 0) {
+      _pullAgain = false;
+      pullAuthoritative().catch(() => {});
+    } else {
+      _pullAgain = false;
+    }
+  }
+}
+
+// Run a granular server op. On failure (network / old server without the new
+// endpoints) fall back to the legacy debounced full push, which merges before
+// writing. Once all in-flight ops finish, pull the authoritative server state.
+async function runServerOp(opFn, legacyFallback) {
+  if (!_cloudSynced) { legacyFallback(); return; }
+  _opsInFlight++;
+  try {
+    await opFn();
+  } catch (err) {
+    console.warn('[ImagePool] ⚠️ Granular vault op failed — using legacy sync:', err.message);
+    try { legacyFallback(); } catch (_) {}
+  } finally {
+    _opsInFlight--;
+    if (_opsInFlight === 0) pullAuthoritative().catch(() => {});
+  }
+}
+
+function serverAddItem(item) {
+  return runServerOp(
+    () => apiRequest(vaultQuery('/storage/vault/items'), {
+      method: 'POST',
+      body: JSON.stringify({ item })
+    }),
+    schedulePoolSync
+  );
+}
+
+function serverUpdateItem(itemId, updates) {
+  return runServerOp(
+    () => apiRequest(vaultQuery(`/storage/vault/items/${encodeURIComponent(itemId)}`), {
+      method: 'PUT',
+      body: JSON.stringify({ updates })
+    }),
+    schedulePoolSync
+  );
+}
+
+function serverDeleteItem(itemId) {
+  return runServerOp(
+    () => apiRequest(vaultQuery(`/storage/vault/items/${encodeURIComponent(itemId)}`), {
+      method: 'DELETE'
+    }),
+    schedulePoolSync
+  );
+}
+
+function serverCreateFolder(folder) {
+  return runServerOp(
+    () => apiRequest(vaultQuery('/storage/vault/folders'), {
+      method: 'POST',
+      body: JSON.stringify({ folder })
+    }),
+    scheduleVaultsSync
+  );
+}
+
+function serverRenameFolder(folderId, name) {
+  return runServerOp(
+    () => apiRequest(vaultQuery(`/storage/vault/folders/${encodeURIComponent(folderId)}`), {
+      method: 'PUT',
+      body: JSON.stringify({ name })
+    }),
+    scheduleVaultsSync
+  );
+}
+
+function serverDeleteFolder(folderId) {
+  return runServerOp(
+    () => apiRequest(vaultQuery(`/storage/vault/folders/${encodeURIComponent(folderId)}`), {
+      method: 'DELETE'
+    }),
+    () => { scheduleVaultsSync(); schedulePoolSync(); }
+  );
 }
 
 async function pushPoolToServer() {
@@ -621,7 +750,7 @@ async function pollForChanges() {
     if (!_cloudSynced || document.hidden) return;
     // Don't pull while a local edit is mid-push — the push path merges server
     // state itself, and pulling now could race the in-flight write.
-    if (_pushInFlight) return;
+    if (_pushInFlight || _opsInFlight > 0) return;
     try {
       _isSyncing = true;
       const pulled = await pullProfileServerVault({ force: false });
@@ -1197,12 +1326,12 @@ function saveSentImagesMap() {
   }
 }
 
-// Save pool to localStorage + schedule cloud sync
+// Save pool to localStorage (cache only — server sync happens through the
+// granular per-item ops, or an explicit schedulePoolSync() fallback)
 function savePool() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool));
     updateStats();
-    schedulePoolSync();
   } catch (e) {
     console.error('[ImagePool] Error saving pool:', e);
     throw e; // Re-throw so callers can detect save failures (e.g. QuotaExceededError)
@@ -1432,6 +1561,7 @@ async function saveNewImage() {
     
     imagePool.push(newMedia);
     savePool();
+    serverAddItem(newMedia); // atomic server write — safe with concurrent users
     renderPool();
     hideAddForm();
     
@@ -1486,6 +1616,7 @@ export async function addImage(mediaData, mediaType = 'image', name = '', vaultI
     throw e;
   }
   
+  serverAddItem(newMedia); // atomic server write — safe with concurrent users
   console.log(`[ImagePool] ☁️ Added ${mediaType}: ${newMedia.name} (Firebase Storage)`);
   return newMedia;
 }
@@ -1525,6 +1656,7 @@ export async function addFile(file, mediaType = 'image', name = '', vaultId = 'd
     throw e;
   }
 
+  serverAddItem(newMedia); // atomic server write — safe with concurrent users
   console.log(`[ImagePool] ☁️ Added ${mediaType}: ${newMedia.name} (direct file upload, ${(file.size / 1024 / 1024).toFixed(1)}MB)`);
   return newMedia;
 }
@@ -1541,11 +1673,11 @@ export async function deleteImage(imageId) {
     });
   }
   
-  // Tombstone: prevents merge-before-push from resurrecting this item from the
-  // server copy while the deletion is still waiting to be pushed.
+  // Tombstone: protects the legacy fallback path from resurrecting this item.
   _deletedPoolIds.add(imageId);
   imagePool = imagePool.filter(img => img.id !== imageId);
   savePool();
+  serverDeleteItem(imageId); // atomic server delete — propagates to all users
   renderPool();
 }
 
@@ -1773,6 +1905,12 @@ function saveImageEdit(imageId) {
   
   // Save and re-render
   savePool();
+  serverUpdateItem(image.id, {
+    name: image.name,
+    description: image.description,
+    category: image.category,
+    tags: image.tags
+  });
   renderPool();
   hideEditModal();
   
@@ -1820,18 +1958,23 @@ function loadVaults() {
   _vaultsLoaded = true;
 }
 
+// Persist folders to localStorage (cache only — server sync happens through
+// the granular folder ops, or an explicit scheduleVaultsSync() fallback)
 function saveVaults() {
-  try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); scheduleVaultsSync(); } catch (_) {}
+  try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
 }
 
 export function getVaults() { ensureLoaded(); return [...vaults]; }
 
 export function createVault(name) {
   ensureLoaded();
-  const id = `vault_${Date.now()}`;
+  // Random suffix prevents ID collisions when two users create folders at
+  // the same moment (Date.now() alone can collide across devices).
+  const id = `vault_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const v = { id, name: name.trim() || 'Untitled', createdAt: Date.now() };
   vaults.push(v);
   saveVaults();
+  serverCreateFolder(v); // atomic server write — appears for all users
   return v;
 }
 
@@ -1839,20 +1982,24 @@ export function renameVault(vaultId, newName) {
   ensureLoaded();
   if (vaultId === 'default') return;
   const v = vaults.find(x => x.id === vaultId);
-  if (v) { v.name = newName.trim() || v.name; saveVaults(); }
+  if (v) {
+    v.name = newName.trim() || v.name;
+    saveVaults();
+    serverRenameFolder(vaultId, v.name); // atomic server write
+  }
 }
 
 export function deleteVault(vaultId) {
   ensureLoaded();
   if (vaultId === 'default') return;
-  // Move orphaned media to default
+  // Move orphaned media to default (the server does the same atomically)
   imagePool.forEach(img => { if (img.vaultId === vaultId) img.vaultId = 'default'; });
   savePool();
-  // Tombstone: prevents merge-before-push from resurrecting this folder from the
-  // server copy while the deletion is still waiting to be pushed.
+  // Tombstone: protects the legacy fallback path from resurrecting this folder.
   _deletedVaultIds.add(vaultId);
   vaults = vaults.filter(v => v.id !== vaultId);
   saveVaults();
+  serverDeleteFolder(vaultId); // atomic server delete — disappears for all users
 }
 
 export function getImagesByVault(vaultId) {
@@ -1864,7 +2011,11 @@ export function getImagesByVault(vaultId) {
 export function moveMediaToVault(mediaId, vaultId) {
   ensureLoaded();
   const img = imagePool.find(m => m.id === mediaId);
-  if (img) { img.vaultId = vaultId; savePool(); }
+  if (img) {
+    img.vaultId = vaultId;
+    savePool();
+    serverUpdateItem(mediaId, { vaultId }); // atomic server write
+  }
 }
 
 // ============================================================
@@ -1949,6 +2100,7 @@ export function markImageUsed(imageId) {
     image.usageCount++;
     image.lastUsed = Date.now();
     savePool();
+    serverUpdateItem(imageId, { usageCount: image.usageCount, lastUsed: image.lastUsed });
     updateStats();
   }
 }
