@@ -21,7 +21,8 @@ import {
   deleteVault,
   getImagesByVault,
   moveMediaToVault,
-  handleMediaError
+  handleMediaError,
+  pollNow
 } from '../imagePool.js';
 
 let currentTab = 'images';   // 'images' | 'videos' | 'sent'
@@ -45,6 +46,9 @@ export const openVault = () => {
   currentTab = 'images';
   currentVaultId = 'all';
   renderVault();
+  // Live sync: immediately check the server for other users' changes so the
+  // vault is fresh the moment it's opened (instead of waiting for the next poll)
+  pollNow();
 };
 
 

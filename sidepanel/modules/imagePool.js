@@ -41,9 +41,42 @@ const SYNC_DEBOUNCE_MS = 2000; // 2s debounce for server saves
 // LIVE POLLING — Detect remote changes every 30s
 // ============================================================
 let _pollInterval = null;
-const POLL_INTERVAL_MS = 30000; // 30s between version checks
+const POLL_INTERVAL_MS = 10000; // 10s between version checks — near-live cross-user updates
 let _lastKnownVersions = { pool: 0, vaults: 0, sent: 0 };
 let _isSyncing = false; // Prevent overlapping syncs
+
+// ── PENDING-CHANGE TRACKING (multi-user conflict protection) ──
+// Dirty flags mark local edits that haven't reached the server yet. While dirty,
+// the poll must NOT blindly replace local state (it would silently drop the edit).
+// Tombstones record local deletions so merge-before-push doesn't resurrect items
+// that another user's device still has in its copy.
+let _poolDirty = false;
+let _vaultsDirty = false;
+let _sentDirty = false;
+let _pushInFlight = false;
+const _deletedPoolIds = new Set();   // pool item ids deleted locally, not yet pushed
+const _deletedVaultIds = new Set();  // vault (folder) ids deleted locally, not yet pushed
+const _unmarkedSent = new Map();     // subId → Set(image ids unmarked locally, not yet pushed)
+const MAX_PUSH_RETRIES = 5;
+const _pushRetryCounts = { pool: 0, vaults: 0, sent: 0 };
+
+function hasPendingLocalChanges() {
+  return _poolDirty || _vaultsDirty || _sentDirty || _pushInFlight;
+}
+
+// Merge helpers — LOCAL WINS for items it has (rename/move edits stick), server-only
+// items are kept (another user's additions), local tombstoned deletions are applied.
+function mergeLocalIntoServerPool(serverPool, localPool) {
+  const localIds = new Set(localPool.map(i => i.id));
+  const serverOnly = serverPool.filter(i => !localIds.has(i.id) && !_deletedPoolIds.has(i.id));
+  return [...localPool, ...serverOnly];
+}
+
+function mergeLocalIntoServerVaults(serverVaults, localVaults) {
+  const localIds = new Set(localVaults.map(v => v.id));
+  const serverOnly = serverVaults.filter(v => !localIds.has(v.id) && !_deletedVaultIds.has(v.id));
+  return [...localVaults, ...serverOnly];
+}
 let _syncGeneration = 0; // Incremented on every profile switch — used to discard stale async results
 
 // ============================================================
@@ -100,6 +133,15 @@ export function setActiveProfile(profileId, { skipSync = false } = {}) {
   _cloudSynced = false;
   _lastSyncTime = 0;
   _lastKnownVersions = { pool: 0, vaults: 0, sent: 0 };
+  _poolDirty = false;
+  _vaultsDirty = false;
+  _sentDirty = false;
+  _deletedPoolIds.clear();
+  _deletedVaultIds.clear();
+  _unmarkedSent.clear();
+  _pushRetryCounts.pool = 0;
+  _pushRetryCounts.vaults = 0;
+  _pushRetryCounts.sent = 0;
 
   // Cancel pending syncs/timers from previous profile
   clearTimeout(_poolSyncTimer);
@@ -157,6 +199,7 @@ async function restoreActiveProfile() {
 }
 
 function schedulePoolSync() {
+  _poolDirty = true; // Guard: poll must not replace local state until this is pushed
   // SAFETY: Never push to server before initial sync completes.
   // A device with incomplete local data could overwrite existing server data.
   if (!_cloudSynced) {
@@ -168,27 +211,29 @@ function schedulePoolSync() {
   // same-account devices then pick them up.
   clearTimeout(_poolSyncTimer);
 
-  _poolSyncTimer = setTimeout(() => pushPoolToServer(), SYNC_DEBOUNCE_MS);
+  _poolSyncTimer = setTimeout(() => { _poolSyncTimer = null; pushPoolToServer(); }, SYNC_DEBOUNCE_MS);
 }
 
 function scheduleVaultsSync() {
+  _vaultsDirty = true; // Guard: poll must not replace local state until this is pushed
   if (!_cloudSynced) {
     console.log('[ImagePool] ⏳ Vaults write deferred — waiting for initial cloud sync');
     return;
   }
   // Push to profile-scoped Clarity server doc in both modes (see schedulePoolSync).
   clearTimeout(_vaultsSyncTimer);
-  _vaultsSyncTimer = setTimeout(() => pushVaultsToServer(), SYNC_DEBOUNCE_MS);
+  _vaultsSyncTimer = setTimeout(() => { _vaultsSyncTimer = null; pushVaultsToServer(); }, SYNC_DEBOUNCE_MS);
 }
 
 function scheduleSentSync() {
+  _sentDirty = true; // Guard: poll must not replace local state until this is pushed
   if (!_cloudSynced) {
     console.log('[ImagePool] ⏳ Sent write deferred — waiting for initial cloud sync');
     return;
   }
   // Push to profile-scoped Clarity server doc in both modes (see schedulePoolSync).
   clearTimeout(_sentSyncTimer);
-  _sentSyncTimer = setTimeout(() => pushSentToServer(), SYNC_DEBOUNCE_MS);
+  _sentSyncTimer = setTimeout(() => { _sentSyncTimer = null; pushSentToServer(); }, SYNC_DEBOUNCE_MS);
 }
 
 
@@ -201,39 +246,150 @@ function vaultQuery(path) {
   return `${path}${sep}profileId=${encodeURIComponent(_activeProfileId)}`;
 }
 
-async function pushPoolToServer() {
+// Fetch the latest server vault state (used for merge-before-push). Null on failure.
+async function fetchServerVault() {
   try {
+    const data = await apiRequest(vaultQuery('/storage/vault'));
+    if (data && data.success) return data;
+  } catch (_) {}
+  return null;
+}
+
+// After a successful push, record the server's new version timestamps so the next
+// poll doesn't needlessly re-pull our own write.
+async function refreshKnownVersions() {
+  try {
+    const ver = await apiRequest(vaultQuery('/storage/vault/version'));
+    if (ver && ver.success) {
+      _lastKnownVersions = {
+        pool: ver.poolUpdatedAt || 0,
+        vaults: ver.vaultsUpdatedAt || 0,
+        sent: ver.sentUpdatedAt || 0
+      };
+    }
+  } catch (_) {}
+}
+
+// Bounded retry for failed pushes — keeps the dirty flag set (so polls don't
+// clobber the unsaved edit) and retries with linear backoff. After exhausting
+// retries the dirty flag is released so live sync can resume.
+function retryPush(kind, retryFn) {
+  if (_pushRetryCounts[kind] >= MAX_PUSH_RETRIES) {
+    console.warn(`[ImagePool] ⚠️ ${kind} push failed ${MAX_PUSH_RETRIES}x — giving up until next change`);
+    if (kind === 'pool') _poolDirty = false;
+    if (kind === 'vaults') _vaultsDirty = false;
+    if (kind === 'sent') _sentDirty = false;
+    _pushRetryCounts[kind] = 0;
+    return;
+  }
+  _pushRetryCounts[kind]++;
+  setTimeout(retryFn, SYNC_DEBOUNCE_MS * (_pushRetryCounts[kind] + 1));
+}
+
+async function pushPoolToServer() {
+  _pushInFlight = true;
+  try {
+    // MERGE-BEFORE-PUSH: the pool PUT replaces the whole array on the server.
+    // Without merging, two users on the same account editing at the same time
+    // clobber each other (last writer wins) — the root cause of users seeing
+    // different media. Pull the server copy first and union it with local state.
+    const server = await fetchServerVault();
+    if (server && Array.isArray(server.pool)) {
+      const merged = mergeLocalIntoServerPool(server.pool, imagePool);
+      if (merged.length !== imagePool.length) {
+        imagePool = merged;
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(imagePool)); } catch (_) {}
+        renderPool();
+        window.dispatchEvent(new CustomEvent('vault-pool-updated'));
+      }
+    }
+
     await apiRequest('/storage/vault/pool', {
       method: 'PUT',
       body: JSON.stringify({ items: imagePool, profileId: _activeProfileId || null })
     });
+    _poolDirty = false;
+    _deletedPoolIds.clear();
+    _pushRetryCounts.pool = 0;
+    await refreshKnownVersions();
     console.log('[ImagePool] ☁️ Pool synced to server:', imagePool.length, 'items', _activeProfileId ? `(profile ${_activeProfileId})` : '');
   } catch (err) {
     console.warn('[ImagePool] ⚠️ Pool server sync failed (will retry):', err.message);
+    retryPush('pool', pushPoolToServer);
+  } finally {
+    _pushInFlight = false;
   }
 }
 
 async function pushVaultsToServer() {
+  _pushInFlight = true;
   try {
+    // MERGE-BEFORE-PUSH: keep folders other users created while we were editing.
+    const server = await fetchServerVault();
+    if (server && Array.isArray(server.vaults)) {
+      const merged = mergeLocalIntoServerVaults(server.vaults, vaults);
+      if (merged.length !== vaults.length) {
+        vaults = merged;
+        if (!vaults.find(v => v.id === 'default')) {
+          vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
+        }
+        try { localStorage.setItem(VAULTS_KEY, JSON.stringify(vaults)); } catch (_) {}
+        window.dispatchEvent(new CustomEvent('vault-pool-updated'));
+      }
+    }
+
     await apiRequest('/storage/vault/vaults', {
       method: 'PUT',
       body: JSON.stringify({ vaults, profileId: _activeProfileId || null })
     });
+    _vaultsDirty = false;
+    _deletedVaultIds.clear();
+    _pushRetryCounts.vaults = 0;
+    await refreshKnownVersions();
     console.log('[ImagePool] ☁️ Vaults synced to server:', vaults.length, 'vaults', _activeProfileId ? `(profile ${_activeProfileId})` : '');
   } catch (err) {
-    console.warn('[ImagePool] ⚠️ Vaults server sync failed:', err.message);
+    console.warn('[ImagePool] ⚠️ Vaults server sync failed (will retry):', err.message);
+    retryPush('vaults', pushVaultsToServer);
+  } finally {
+    _pushInFlight = false;
   }
 }
 
 async function pushSentToServer() {
+  _pushInFlight = true;
   try {
+    // MERGE-BEFORE-PUSH: union per-subscriber sent lists so two users marking media
+    // as sent at the same time don't erase each other's tracking. Locally-unmarked
+    // ids (tombstoned) are excluded so "unmark sent" still sticks.
+    const server = await fetchServerVault();
+    if (server && server.sent && typeof server.sent === 'object') {
+      for (const [subId, ids] of Object.entries(server.sent)) {
+        if (!Array.isArray(ids)) continue;
+        const tomb = _unmarkedSent.get(subId);
+        const incoming = tomb ? ids.filter(id => !tomb.has(id)) : ids;
+        if (!sentImagesMap[subId]) {
+          sentImagesMap[subId] = incoming;
+        } else {
+          sentImagesMap[subId] = [...new Set([...sentImagesMap[subId], ...incoming])];
+        }
+      }
+      try { localStorage.setItem(SENT_IMAGES_KEY, JSON.stringify(sentImagesMap)); } catch (_) {}
+    }
+
     await apiRequest('/storage/vault/sent', {
       method: 'PUT',
       body: JSON.stringify({ map: sentImagesMap, profileId: _activeProfileId || null })
     });
+    _sentDirty = false;
+    _unmarkedSent.clear();
+    _pushRetryCounts.sent = 0;
+    await refreshKnownVersions();
     console.log('[ImagePool] ☁️ Sent map synced to server:', Object.keys(sentImagesMap).length, 'subscribers', _activeProfileId ? `(profile ${_activeProfileId})` : '');
   } catch (err) {
-    console.warn('[ImagePool] ⚠️ Sent map server sync failed:', err.message);
+    console.warn('[ImagePool] ⚠️ Sent map server sync failed (will retry):', err.message);
+    retryPush('sent', pushSentToServer);
+  } finally {
+    _pushInFlight = false;
   }
 }
 
@@ -275,8 +431,13 @@ async function pullProfileServerVault({ force = false } = {}) {
     const serverVaults = Array.isArray(data.vaults) ? data.vaults : [];
 
     // SERVER WINS: replace local state entirely so additions AND deletions sync.
-    imagePool = serverPool;
-    vaults = serverVaults;
+    // Exception: while local edits are still pending (dirty), merge them back in so
+    // a pull can never silently drop an edit made moments ago on this device.
+    const priorPool = imagePool;
+    const priorVaults = vaults;
+
+    imagePool = _poolDirty ? mergeLocalIntoServerPool(serverPool, priorPool) : serverPool;
+    vaults = _vaultsDirty ? mergeLocalIntoServerVaults(serverVaults, priorVaults) : serverVaults;
     if (!vaults.find(v => v.id === 'default')) {
       vaults.unshift({ id: 'default', name: 'General', createdAt: 0 });
     }
@@ -458,6 +619,9 @@ async function pollForChanges() {
   // additions AND deletions (folders someone removed disappear here too).
   if (_activeProfileId) {
     if (!_cloudSynced || document.hidden) return;
+    // Don't pull while a local edit is mid-push — the push path merges server
+    // state itself, and pulling now could race the in-flight write.
+    if (_pushInFlight) return;
     try {
       _isSyncing = true;
       const pulled = await pullProfileServerVault({ force: false });
@@ -497,6 +661,10 @@ async function pollForChanges() {
 
   // Skip when tab is hidden (saves bandwidth)
   if (document.hidden) return;
+
+  // Don't replace local state while edits are pending — the push path handles
+  // merging with the server, and replacing now would drop the user's changes.
+  if (hasPendingLocalChanges()) return;
 
   try {
     const data = await apiRequest('/storage/vault/version');
@@ -595,6 +763,14 @@ function _onVisibilityChange() {
     // Tab became visible — poll immediately for any changes missed while hidden
     pollForChanges();
   }
+}
+
+/** Poll the server immediately for remote changes (e.g. when the Vault tab is
+ *  opened) so users see other people's uploads without waiting for the next
+ *  scheduled poll. Safe to call anytime — no-ops while hidden/dirty/syncing. */
+export function pollNow() {
+  if (!_cloudSynced) return;
+  pollForChanges();
 }
 
 // Wait for Firebase auth to be ready (token available)
@@ -1365,6 +1541,9 @@ export async function deleteImage(imageId) {
     });
   }
   
+  // Tombstone: prevents merge-before-push from resurrecting this item from the
+  // server copy while the deletion is still waiting to be pushed.
+  _deletedPoolIds.add(imageId);
   imagePool = imagePool.filter(img => img.id !== imageId);
   savePool();
   renderPool();
@@ -1669,6 +1848,9 @@ export function deleteVault(vaultId) {
   // Move orphaned media to default
   imagePool.forEach(img => { if (img.vaultId === vaultId) img.vaultId = 'default'; });
   savePool();
+  // Tombstone: prevents merge-before-push from resurrecting this folder from the
+  // server copy while the deletion is still waiting to be pushed.
+  _deletedVaultIds.add(vaultId);
   vaults = vaults.filter(v => v.id !== vaultId);
   saveVaults();
 }
@@ -1910,6 +2092,11 @@ export function unmarkImageSentToSubscriber(subscriberId, imageId) {
   const removed = before - sentImagesMap[cleanSubscriberId].length;
 
   if (removed > 0) {
+    // Tombstone: merge-before-push must not re-add these ids from the server copy
+    if (!_unmarkedSent.has(cleanSubscriberId)) _unmarkedSent.set(cleanSubscriberId, new Set());
+    const tomb = _unmarkedSent.get(cleanSubscriberId);
+    tomb.add(imageId.toString());
+    tomb.add(normalizedImageId);
     saveSentImagesMap();
     console.log(`[ImagePool] ↩️ Unmarked image "${normalizedImageId}" as sent to ${cleanSubscriberId}`);
   }
